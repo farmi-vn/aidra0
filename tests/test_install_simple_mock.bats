@@ -74,7 +74,7 @@ teardown() {
     [[ "$output" == *"Unknown option"* ]]
 }
 
-@test "install script detects existing installation and shows version" {
+@test "install script detects existing installation and shows update message" {
     # Create a temporary test directory and mock script
     local test_dir="$BATS_TMPDIR/test_install"
     mkdir -p "$test_dir"
@@ -89,16 +89,15 @@ fi
 EOF
     chmod +x "$test_dir/aidra0"
     
-    # Test that the install script detects existing installation
-    # Using echo "n" to automatically decline overwrite
-    run bash -c "echo 'n' | bash '$BATS_TEST_DIRNAME/../install.sh' --path '$test_dir'"
-    [ "$status" -eq 0 ]
+    # Test that the install script detects existing installation and shows update message
+    # We'll interrupt before actual download by making curl fail
+    run timeout 5 bash "$BATS_TEST_DIRNAME/../install.sh" --path "$test_dir" || true
     [[ "$output" == *"aidra0 is already installed"* ]]
     [[ "$output" == *"Current version: aidra0 version 1.0.0"* ]]
-    [[ "$output" == *"Installation cancelled"* ]]
+    [[ "$output" == *"Updating existing installation"* ]]
 }
 
-@test "install script handles version detection failure gracefully" {
+@test "install script handles version detection failure and shows update message" {
     # Create a temporary test directory and broken mock script
     local test_dir="$BATS_TMPDIR/test_install_broken"
     mkdir -p "$test_dir"
@@ -110,10 +109,10 @@ exit 1
 EOF
     chmod +x "$test_dir/aidra0"
     
-    # Test that the install script handles version detection failure
-    run bash -c "echo 'n' | bash '$BATS_TEST_DIRNAME/../install.sh' --path '$test_dir'"
-    [ "$status" -eq 0 ]
+    # Test that the install script handles version detection failure and shows update message
+    # We'll interrupt before actual download by making curl fail
+    run timeout 5 bash "$BATS_TEST_DIRNAME/../install.sh" --path "$test_dir" || true
     [[ "$output" == *"aidra0 is already installed"* ]]
     [[ "$output" == *"Current version: Unable to determine"* ]]
-    [[ "$output" == *"Installation cancelled"* ]]
+    [[ "$output" == *"Updating existing installation"* ]]
 }

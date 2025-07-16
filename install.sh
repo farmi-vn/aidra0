@@ -306,22 +306,8 @@ main() {
             print_info "Current version: Unable to determine"
         fi
         
+        print_info "Updating existing installation..."
         echo
-        while true; do
-            read -p "Overwrite existing installation? (y/N): " -r response
-            case "$response" in
-                [Yy]|[Yy][Ee][Ss])
-                    break
-                    ;;
-                [Nn]|[Nn][Oo]|"")
-                    print_info "Installation cancelled"
-                    exit 0
-                    ;;
-                *)
-                    echo "Please answer yes (y) or no (n)."
-                    ;;
-            esac
-        done
     fi
     
     # Install aidra0
