@@ -10,7 +10,10 @@
       "Bash(bash:*)",
       "Bash(timeout:*)",
       "Bash(bats:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "WebFetch(domain:docs.docker.com)",
+      "Bash(rm:*)",
+      "Bash(./aidra0:*)"
     ],
     "deny": []
   }
