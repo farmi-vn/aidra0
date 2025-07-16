@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(./aidra0 --help)",
+      "Bash(find:*)",
+      "Bash(./run-tests.sh)",
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(bash:*)",
+      "Bash(timeout:*)",
+      "Bash(bats:*)",
+      "Bash(rg:*)"
+    ],
+    "deny": []
+  }
+}

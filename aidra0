@@ -1,0 +1,2403 @@
+#!/bin/bash
+
+# Version information
+SCRIPT_VERSION="1.0.3"
+GITHUB_REPO="farmi-vn/aidra0"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/aidra0"
+
+# Configuration file path
+CONFIG_DIR="${CONFIG_DIR:-$HOME/.config/aidra0}"
+CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config}"
+
+# Function to ensure config directory exists
+ensure_config_dir() {
+  if [[ ! -d "$CONFIG_DIR" ]]; then
+    mkdir -p "$CONFIG_DIR"
+  fi
+}
+
+# Function to read config value (wrapper for backward compatibility)
+get_config_value() {
+  get_config_value_multi "$1" "$2"
+}
+
+# Function to set config value in specific file
+set_config_value_in_file() {
+  local config_file="$1"
+  local key="$2"
+  local value="$3"
+
+  # Create file if it doesn't exist
+  if [[ ! -f "$config_file" ]]; then
+    touch "$config_file"
+  fi
+
+  # Remove existing key if present
+  grep -v "^$key=" "$config_file" >"$config_file.tmp" 2>/dev/null || true
+  mv "$config_file.tmp" "$config_file"
+
+  # Add new key=value
+  echo "$key=$value" >>"$config_file"
+}
+
+# Function to set config value (default to local config like git)
+set_config_value() {
+  local key="$1"
+  local value="$2"
+  local target="${3:-local}"  # Default to local config (git-like behavior)
+
+  case "$target" in
+    "local")
+      local local_config="$PWD/$LOCAL_CONFIG_FILE"
+      set_config_value_in_file "$local_config" "$key" "$value"
+      ;;
+    "global")
+      ensure_config_dir
+      set_config_value_in_file "$CONFIG_FILE" "$key" "$value"
+      ;;
+    *)
+      echo "Error: Invalid config target. Use 'local' or 'global'" >&2
+      return 1
+      ;;
+  esac
+}
+
+# Local project configuration file name
+LOCAL_CONFIG_FILE=".aidra0.conf"
+
+# Function to find local config file
+find_local_config() {
+  if [[ -f "$PWD/$LOCAL_CONFIG_FILE" ]]; then
+    echo "$PWD/$LOCAL_CONFIG_FILE"
+    return 0
+  fi
+  return 1
+}
+
+# Function to read config value from specific file
+get_config_value_from_file() {
+  local config_file="$1"
+  local key="$2"
+
+  if [[ -f "$config_file" ]]; then
+    local value
+    value=$(grep "^$key=" "$config_file" 2>/dev/null | cut -d'=' -f2- | head -n1)
+    if [[ -n "$value" ]]; then
+      echo "$value"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# Function to get config value from environment variable
+get_env_config_value() {
+  local key="$1"
+  # Convert to uppercase in a more portable way
+  local env_var="AIDRA0_$(echo "$key" | tr '[:lower:]' '[:upper:]')"
+
+  # Use eval for indirect variable reference (more portable)
+  local value
+  eval "value=\${$env_var:-}"
+
+  if [[ -n "$value" ]]; then
+    echo "$value"
+    return 0
+  fi
+
+  return 1
+}
+
+# Function to get config value from all sources with precedence
+get_config_value_multi() {
+  local key="$1"
+  local default_value="$2"
+
+  # 1. Check environment variable (highest priority)
+  local value
+  if value=$(get_env_config_value "$key"); then
+    echo "$value"
+    return 0
+  fi
+
+  # 2. Check local project config
+  local local_config
+  if local_config=$(find_local_config); then
+    if value=$(get_config_value_from_file "$local_config" "$key"); then
+      echo "$value"
+      return 0
+    fi
+  fi
+
+  # 3. Check user config
+  if value=$(get_config_value_from_file "$CONFIG_FILE" "$key"); then
+    echo "$value"
+    return 0
+  fi
+
+  # 4. Return default
+  echo "$default_value"
+}
+
+# Function to identify which config source provides a value
+get_config_source() {
+  local key="$1"
+
+  # Check environment variable
+  if get_env_config_value "$key" >/dev/null 2>&1; then
+    local env_var="AIDRA0_$(echo "$key" | tr '[:lower:]' '[:upper:]')"
+    echo "environment ($env_var)"
+    return 0
+  fi
+
+  # Check local project config
+  local local_config
+  if local_config=$(find_local_config); then
+    if get_config_value_from_file "$local_config" "$key" >/dev/null 2>&1; then
+      echo "local ($local_config)"
+      return 0
+    fi
+  fi
+
+  # Check global/user config
+  if get_config_value_from_file "$CONFIG_FILE" "$key" >/dev/null 2>&1; then
+    echo "global ($CONFIG_FILE)"
+    return 0
+  fi
+
+  echo "default"
+}
+
+# Function to show version information
+show_version() {
+  echo "aidra0 version $SCRIPT_VERSION"
+  echo "GitHub repository: https://github.com/$GITHUB_REPO"
+}
+
+# Function to get remote version from GitHub
+get_remote_version() {
+  local remote_content
+  remote_content=$(curl -s "$GITHUB_RAW_URL" 2>/dev/null)
+
+  if [[ $? -eq 0 && -n "$remote_content" ]]; then
+    echo "$remote_content" | grep '^SCRIPT_VERSION=' | cut -d'"' -f2
+  else
+    return 1
+  fi
+}
+
+# Function to compare semantic versions
+# Returns: 0 if v1 == v2, 1 if v1 > v2, 2 if v1 < v2
+compare_versions() {
+  local v1="$1"
+  local v2="$2"
+
+  # If versions are identical, return 0
+  if [[ "$v1" == "$v2" ]]; then
+    return 0
+  fi
+
+  # Split versions into arrays
+  IFS='.' read -ra v1_parts <<< "$v1"
+  IFS='.' read -ra v2_parts <<< "$v2"
+
+  # Pad arrays to same length
+  local max_len=${#v1_parts[@]}
+  if [[ ${#v2_parts[@]} -gt $max_len ]]; then
+    max_len=${#v2_parts[@]}
+  fi
+
+  # Compare each part
+  for ((i=0; i<max_len; i++)); do
+    local part1=${v1_parts[i]:-0}
+    local part2=${v2_parts[i]:-0}
+
+    # Remove leading zeros and convert to numbers
+    part1=$((10#$part1))
+    part2=$((10#$part2))
+
+    if [[ $part1 -gt $part2 ]]; then
+      return 1  # v1 > v2
+    elif [[ $part1 -lt $part2 ]]; then
+      return 2  # v1 < v2
+    fi
+  done
+
+  return 0  # v1 == v2
+}
+
+# Function to check if update is available
+check_for_updates() {
+  local remote_version
+  local last_check_file="$CONFIG_DIR/last_update_check"
+  local current_time=$(date +%s)
+
+  # Check if auto-check is disabled
+  local auto_check=$(get_config_value "auto_check_updates" "true")
+  if [[ "$auto_check" != "true" ]]; then
+    return 0
+  fi
+
+  # Rate limiting: check at most once per day (86400 seconds)
+  if [[ -f "$last_check_file" ]]; then
+    local last_check=$(cat "$last_check_file" 2>/dev/null || echo "0")
+    local time_diff=$((current_time - last_check))
+    if [[ $time_diff -lt 86400 ]]; then
+      return 0
+    fi
+  fi
+
+  # Get remote version
+  remote_version=$(get_remote_version)
+  if [[ $? -eq 0 && -n "$remote_version" ]]; then
+    # Update last check time
+    ensure_config_dir
+    echo "$current_time" > "$last_check_file"
+
+    # Compare versions using semantic version comparison
+    compare_versions "$SCRIPT_VERSION" "$remote_version"
+    local comparison_result=$?
+
+    if [[ $comparison_result -eq 2 ]]; then
+      # Current version is older than remote version
+      echo "📦 New version available: $remote_version (current: $SCRIPT_VERSION)"
+      echo "   Run 'aidra0 --upgrade' to update"
+      echo ""
+    fi
+  fi
+}
+
+# Function to download and install update
+upgrade_script() {
+  local remote_version
+  local backup_file
+  local script_path
+
+  echo "Checking for updates..."
+
+  # Get remote version
+  remote_version=$(get_remote_version)
+  if [[ $? -ne 0 || -z "$remote_version" ]]; then
+    echo "Error: Could not fetch remote version. Please check your internet connection."
+    return 1
+  fi
+
+  # Check if update is needed using semantic version comparison
+  compare_versions "$SCRIPT_VERSION" "$remote_version"
+  local comparison_result=$?
+
+  if [[ $comparison_result -eq 0 ]]; then
+    echo "✓ You are already running the latest version ($SCRIPT_VERSION)"
+    return 0
+  elif [[ $comparison_result -eq 1 ]]; then
+    echo "✓ You are running a newer version ($SCRIPT_VERSION) than available remotely ($remote_version)"
+    echo "   No update needed."
+    return 0
+  fi
+
+  echo "Current version: $SCRIPT_VERSION"
+  echo "Available version: $remote_version"
+  echo ""
+
+  # Confirm upgrade
+  read -p "Do you want to upgrade to version $remote_version? (y/N): " -r
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Upgrade cancelled."
+    return 0
+  fi
+
+  # Find script path
+  script_path=$(readlink -f "$0")
+  if [[ ! -w "$script_path" ]]; then
+    echo "Error: Cannot write to $script_path. You may need to run with sudo."
+    return 1
+  fi
+
+  # Create backup
+  backup_file="${script_path}.backup.$(date +%Y%m%d_%H%M%S)"
+  echo "Creating backup: $backup_file"
+  if ! cp "$script_path" "$backup_file"; then
+    echo "Error: Could not create backup file."
+    return 1
+  fi
+
+  # Download new version
+  echo "Downloading new version..."
+  local temp_file=$(mktemp)
+  if ! curl -s "$GITHUB_RAW_URL" -o "$temp_file"; then
+    echo "Error: Failed to download new version."
+    rm -f "$temp_file"
+    return 1
+  fi
+
+  # Verify download
+  if [[ ! -s "$temp_file" ]]; then
+    echo "Error: Downloaded file is empty."
+    rm -f "$temp_file"
+    return 1
+  fi
+
+  # Check if downloaded file is a valid bash script
+  if ! head -n 1 "$temp_file" | grep -q "#!/bin/bash"; then
+    echo "Error: Downloaded file does not appear to be a valid bash script."
+    rm -f "$temp_file"
+    return 1
+  fi
+
+  # Install new version
+  echo "Installing new version..."
+  if ! cp "$temp_file" "$script_path"; then
+    echo "Error: Failed to install new version."
+    echo "You can restore from backup: $backup_file"
+    rm -f "$temp_file"
+    return 1
+  fi
+
+  # Set executable permissions
+  chmod +x "$script_path"
+
+  # Clean up
+  rm -f "$temp_file"
+
+  # Verify installation
+  local new_version=$("$script_path" --version 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' || echo "unknown")
+  if [[ "$new_version" == "$remote_version" ]]; then
+    echo "✓ Successfully upgraded to version $remote_version"
+    echo "Backup saved as: $backup_file"
+
+    # Update last check time to avoid immediate re-check
+    ensure_config_dir
+    echo "$(date +%s)" > "$CONFIG_DIR/last_update_check"
+  else
+    echo "⚠ Installation may not have completed successfully."
+    echo "You can restore from backup: $backup_file"
+    return 1
+  fi
+}
+
+# Function to list all configuration sources in precedence order
+list_config_sources() {
+  echo "Configuration sources (highest to lowest priority):"
+  echo "1. Command-line arguments (overrides all)"
+  echo "2. Environment variables (AIDRA0_*)"
+
+  # Check if local config exists
+  local local_config
+  if local_config=$(find_local_config); then
+    echo "3. Local project config: $local_config"
+  else
+    echo "3. Local project config: not found (./$LOCAL_CONFIG_FILE)"
+  fi
+
+  echo "4. Global/User config: $CONFIG_FILE"
+  echo "5. Built-in defaults"
+}
+
+
+
+# Function to parse custom mounts from config
+parse_custom_mounts() {
+  local mounts_config="$1"
+
+  # Remove brackets and split by comma
+  mounts_config=$(echo "$mounts_config" | sed 's/^\[//; s/\]$//')
+
+  # Parse each mount definition
+  echo "$mounts_config" | grep -o '{[^}]*}' | while read -r mount_def; do
+    # Extract host, container, and mode from JSON-like format
+    local host=$(echo "$mount_def" | sed -n 's/.*"host":"\([^"]*\)".*/\1/p')
+    local container=$(echo "$mount_def" | sed -n 's/.*"container":"\([^"]*\)".*/\1/p')
+    local mode=$(echo "$mount_def" | sed -n 's/.*"mode":"\([^"]*\)".*/\1/p')
+
+    # Default to rw if mode not specified
+    if [[ -z "$mode" ]]; then
+      mode="rw"
+    fi
+
+    # Validate mode
+    if [[ "$mode" != "rw" && "$mode" != "ro" ]]; then
+      echo "Error: Invalid mount mode '$mode'. Must be 'rw' or 'ro'" >&2
+      continue
+    fi
+
+    # Validate paths
+    if [[ -z "$host" || -z "$container" ]]; then
+      echo "Error: Mount definition missing host or container path" >&2
+      continue
+    fi
+
+    # Container path must be absolute
+    if [[ "$container" != /* ]]; then
+      echo "Error: Container path must be absolute: $container" >&2
+      continue
+    fi
+
+    echo "$host:$container:$mode"
+  done
+}
+
+# Function to validate custom mount configuration
+validate_custom_mounts() {
+  local mounts_config="$1"
+
+  # Check JSON-like format
+  if [[ ! "$mounts_config" =~ ^\[.*\]$ ]]; then
+    echo "Error: custom_mounts must be in format: [{\"host\":\"/path\",\"container\":\"/path\",\"mode\":\"rw\"}]"
+    return 1
+  fi
+
+  # Parse and validate each mount
+  local temp_file=$(mktemp)
+  parse_custom_mounts "$mounts_config" > "$temp_file" 2>&1
+
+  if grep -q "Error:" "$temp_file"; then
+    cat "$temp_file" >&2
+    rm "$temp_file"
+    return 1
+  fi
+
+  # Check if any host paths don't exist
+  while IFS=':' read -r host container mode; do
+    if [[ -n "$host" && ! -e "$host" ]]; then
+      echo "Warning: Host path does not exist: $host" >&2
+    fi
+  done < "$temp_file"
+
+  rm "$temp_file"
+  return 0
+}
+
+# Function to validate CPU limit value
+validate_cpu_limit() {
+  local cpu_limit="$1"
+
+  # Check if it's a valid number (integer or decimal)
+  if [[ ! "$cpu_limit" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "Error: CPU limit must be a positive number (e.g., 1, 1.5, 2.0)"
+    return 1
+  fi
+
+  # Check if it's greater than 0 (use awk for floating point comparison)
+  if ! awk "BEGIN {exit !($cpu_limit > 0)}" 2>/dev/null; then
+    echo "Error: CPU limit must be greater than 0"
+    return 1
+  fi
+
+  return 0
+}
+
+# Function to validate memory limit value
+validate_memory_limit() {
+  local memory_limit="$1"
+
+  # Check if it matches valid memory format (number followed by optional unit)
+  if [[ ! "$memory_limit" =~ ^[0-9]+[bkmgBKMG]?$ ]]; then
+    echo "Error: Memory limit must be a number optionally followed by b, k, m, g (e.g., 512m, 1g, 2G, 1024)"
+    return 1
+  fi
+
+  return 0
+}
+
+# Function to validate port format (host:container[:protocol])
+validate_port_format() {
+  local port_mapping="$1"
+
+  # Split the mapping into components
+  IFS=':' read -r host_port container_port protocol <<< "$port_mapping"
+
+  # Check if we have at least host and container ports
+  if [[ -z "$host_port" || -z "$container_port" ]]; then
+    echo "Error: Port mapping must have format host_port:container_port[:protocol]"
+    return 1
+  fi
+
+  # Validate host port (1-65535)
+  if [[ ! "$host_port" =~ ^[0-9]+$ ]] || [[ "$host_port" -lt 1 || "$host_port" -gt 65535 ]]; then
+    echo "Error: Host port must be a number between 1 and 65535: $host_port"
+    return 1
+  fi
+
+  # Validate container port (1-65535)
+  if [[ ! "$container_port" =~ ^[0-9]+$ ]] || [[ "$container_port" -lt 1 || "$container_port" -gt 65535 ]]; then
+    echo "Error: Container port must be a number between 1 and 65535: $container_port"
+    return 1
+  fi
+
+  # Validate protocol if specified (default to tcp)
+  if [[ -n "$protocol" ]]; then
+    if [[ "$protocol" != "tcp" && "$protocol" != "udp" && "$protocol" != "sctp" ]]; then
+      echo "Error: Protocol must be tcp, udp, or sctp: $protocol"
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+# Function to parse port mappings from JSON or simple format
+parse_port_mappings() {
+  local port_mappings_config="$1"
+
+  # Check if it's JSON format (starts with [)
+  if [[ "$port_mappings_config" =~ ^\[.*\]$ ]]; then
+    # JSON format: [{"host":"8080","container":"80","protocol":"tcp"}]
+    local entries=$(echo "$port_mappings_config" | sed 's/^\[//; s/\]$//' | sed 's/},{/}|{/g')
+
+    # Process each entry
+    IFS='|' read -ra port_entries <<< "$entries"
+    for entry in "${port_entries[@]}"; do
+      # Extract host, container, and protocol using sed
+      local host=$(echo "$entry" | sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+      local container=$(echo "$entry" | sed -n 's/.*"container"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+      local protocol=$(echo "$entry" | sed -n 's/.*"protocol"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+      # Default protocol to tcp if not specified
+      if [[ -z "$protocol" ]]; then
+        protocol="tcp"
+      fi
+
+      # Validate the port mapping
+      if ! validate_port_format "$host:$container:$protocol"; then
+        continue
+      fi
+
+      # Output in standardized format
+      echo "$host:$container:$protocol"
+    done
+  else
+    # Simple format: "8080:80 9090:90:udp"
+    read -ra port_entries <<< "$port_mappings_config"
+    for entry in "${port_entries[@]}"; do
+      # Skip empty entries
+      if [[ -z "$entry" ]]; then
+        continue
+      fi
+
+      # Parse host:container[:protocol]
+      IFS=':' read -r host container protocol <<< "$entry"
+
+      # Default protocol to tcp if not specified
+      if [[ -z "$protocol" ]]; then
+        protocol="tcp"
+      fi
+
+      # Validate the port mapping
+      if ! validate_port_format "$host:$container:$protocol"; then
+        continue
+      fi
+
+      # Output in standardized format
+      echo "$host:$container:$protocol"
+    done
+  fi
+}
+
+# Function to validate port mappings configuration
+validate_port_mappings() {
+  local port_mappings_config="$1"
+
+  # Check if it's empty or just empty array
+  if [[ -z "$port_mappings_config" || "$port_mappings_config" == "[]" ]]; then
+    return 0
+  fi
+
+  # Accept both JSON format [{"host":"8080","container":"80","protocol":"tcp"}]
+  # and simple format "8080:80 9090:90:udp"
+  if [[ ! "$port_mappings_config" =~ ^\[.*\]$ ]] && [[ ! "$port_mappings_config" =~ ^[0-9:[:space:]tcpudsctp]+$ ]]; then
+    echo "Error: port_mappings must be in format: '8080:80 9090:90:udp' or '[{\"host\":\"8080\",\"container\":\"80\",\"protocol\":\"tcp\"}]'"
+    return 1
+  fi
+
+  # Parse and validate each port mapping
+  local temp_file=$(mktemp)
+  parse_port_mappings "$port_mappings_config" > "$temp_file" 2>&1
+
+  if grep -q "Error:" "$temp_file"; then
+    cat "$temp_file" >&2
+    rm "$temp_file"
+    return 1
+  fi
+
+  # Check for port conflicts (same host port used multiple times)
+  local host_ports=$(awk -F':' '{print $1}' "$temp_file" | sort)
+  local duplicate_ports=$(echo "$host_ports" | uniq -d)
+
+  if [[ -n "$duplicate_ports" ]]; then
+    echo "Error: Duplicate host ports found: $duplicate_ports" >&2
+    rm "$temp_file"
+    return 1
+  fi
+
+  rm "$temp_file"
+  return 0
+}
+
+# Function to list all config values
+list_config() {
+  echo "Current configuration (with sources):"
+  echo ""
+
+  # General settings
+  echo "General settings:"
+  local default_image=$(get_config_value "default_image" "alpine")
+  local default_image_source=$(get_config_source "default_image")
+  echo "  default_image=$default_image  [$default_image_source]"
+
+  echo ""
+  echo "Resource settings:"
+  local cpu_limit=$(get_config_value "cpu_limit" "")
+  local cpu_limit_source=$(get_config_source "cpu_limit")
+  if [[ -n "$cpu_limit" ]]; then
+    echo "  cpu_limit=$cpu_limit  [$cpu_limit_source]"
+  else
+    echo "  cpu_limit=unlimited  [$cpu_limit_source]"
+  fi
+
+  local memory_limit=$(get_config_value "memory_limit" "")
+  local memory_limit_source=$(get_config_source "memory_limit")
+  if [[ -n "$memory_limit" ]]; then
+    echo "  memory_limit=$memory_limit  [$memory_limit_source]"
+  else
+    echo "  memory_limit=unlimited  [$memory_limit_source]"
+  fi
+
+  echo ""
+  echo "Mount settings:"
+  echo "  Volume mount point: /user-scripts (fixed)"
+
+  # Custom mounts
+  local custom_mounts=$(get_config_value "custom_mounts" "")
+  local custom_mounts_source=$(get_config_source "custom_mounts")
+
+  if [[ -n "$custom_mounts" && "$custom_mounts" != "[]" ]]; then
+    echo "  custom_mounts:  [$custom_mounts_source]"
+    parse_custom_mounts "$custom_mounts" | while IFS=':' read -r host container mode; do
+      echo "    $host -> $container ($mode)"
+    done
+  else
+    echo "  custom_mounts=[]  [$custom_mounts_source]"
+  fi
+
+  echo ""
+  echo "Port settings:"
+  # Port mappings
+  local port_mappings=$(get_config_value "port_mappings" "")
+  local port_mappings_source=$(get_config_source "port_mappings")
+
+  if [[ -n "$port_mappings" && "$port_mappings" != "[]" ]]; then
+    echo "  port_mappings:  [$port_mappings_source]"
+    parse_port_mappings "$port_mappings" | while IFS=':' read -r host container protocol; do
+      echo "    $host -> $container ($protocol)"
+    done
+  else
+    echo "  port_mappings=[]  [$port_mappings_source]"
+  fi
+
+  echo ""
+  echo "Update settings:"
+  local auto_check_updates=$(get_config_value "auto_check_updates" "true")
+  local auto_check_updates_source=$(get_config_source "auto_check_updates")
+  echo "  auto_check_updates=$auto_check_updates  [$auto_check_updates_source]"
+
+  echo ""
+  echo "Configuration files:"
+
+  # Check local config
+  local local_config
+  if local_config=$(find_local_config); then
+    echo "  Local config: $local_config (exists)"
+  else
+    echo "  Local config: ./$LOCAL_CONFIG_FILE (not found)"
+  fi
+
+  # Check global/user config
+  if [[ -f "$CONFIG_FILE" ]]; then
+    echo "  Global/User config: $CONFIG_FILE (exists)"
+  else
+    echo "  Global/User config: $CONFIG_FILE (not found)"
+  fi
+}
+
+# Function to show usage information
+show_usage() {
+  local script_name
+  script_name=$(basename "$0")
+
+  echo "Usage: $script_name [OPTIONS] [CONTAINER_NAME]"
+  echo ""
+  echo "Quick create container with auto mount working dir."
+  echo ""
+  echo "Arguments:"
+  echo "  CONTAINER_NAME    Name for the container (default: current folder name)"
+  echo ""
+  echo "Options:"
+  echo "  --image IMAGE     Docker image to use (default: from config or alpine)"
+  echo "  --mount PATH      Mount host path to container: /host/path:/container/path[:mode]"
+  echo "                    Mode can be 'rw' (read-write) or 'ro' (read-only). Default: rw"
+  echo "                    Can be used multiple times for multiple mounts"
+  echo "  --mount-ro PATH   Mount host path as read-only: /host/path:/container/path"
+  echo "                    Shorthand for --mount /host/path:/container/path:ro"
+  echo "  --network NAME    Connect container to Docker network (can be used multiple times)"
+  echo "  --port MAPPING    Map host port to container port: host_port:container_port[:protocol]"
+  echo "                    Protocol can be 'tcp' (default), 'udp', or 'sctp'"
+  echo "                    Can be used multiple times for multiple ports"
+  echo "  --cpu NUMBER      Limit CPU usage (e.g., 1, 1.5, 2.0)"
+  echo "  --memory SIZE     Limit memory usage (e.g., 512m, 1g, 2G)"
+  echo "  --list            List all aidra0 containers and their status"
+  echo "  --attach NAME     Attach to existing container by name"
+  echo "  --vscode NAME     Open VSCode connected to container by name"
+  echo "  --cursor NAME     Open Cursor connected to container by name"
+  echo "  --webstorm NAME   Open WebStorm connected to container by name"
+  echo "  --phpstorm NAME   Open PHPStorm connected to container by name"
+  echo "  --stop NAME       Stop running container by name"
+  echo "  --remove NAME     Remove container by name (stops if running)"
+  echo "  --debug           Print the docker command instead of executing it"
+  echo "  --config          Manage configuration (defaults to local, use --global for user-wide)"
+  echo "  view-scripts [OPTIONS]  View content of the scripts volume using temporary container"
+  echo "    --alpine        Force use of Alpine image for viewing scripts"
+  echo "    --image IMAGE   Use specific image for viewing scripts"
+  echo "  --version         Show version information"
+  echo "  --upgrade         Check for and install updates"
+  echo "  --no-check        Skip automatic update check"
+  echo "  -h, --help        Show this help message"
+  echo ""
+  echo "Examples:"
+  echo "  $script_name                          # Use current folder name with default image"
+  echo "  $script_name my-app                   # Use 'my-app' as name with default image"
+  echo "  $script_name --image ubuntu my-app    # Use ubuntu image with 'my-app' as name"
+  echo "  $script_name --mount /data:/app/data my-app   # Mount /data to /app/data (read-write)"
+  echo "  $script_name --mount-ro /config:/app/config my-app # Mount /config to /app/config (read-only)"
+  echo "  $script_name --mount /data:/data:ro --mount /logs:/logs:rw my-app # Multiple mounts"
+  echo "  $script_name --network my-network my-app     # Connect to Docker network"
+  echo "  $script_name --network net1 --network net2 my-app # Connect to multiple networks"
+  echo "  $script_name --port 8080:80 my-app           # Map host port 8080 to container port 80"
+  echo "  $script_name --port 8080:80:tcp --port 9090:9090:udp my-app # Multiple port mappings"
+  echo "  $script_name --cpu 2 --memory 1g my-app      # Limit to 2 CPUs and 1GB memory"
+  echo "  $script_name --cpu 1.5 my-app                # Limit to 1.5 CPUs"
+  echo "  $script_name --memory 512m my-app            # Limit to 512MB memory"
+  echo "  $script_name --list                   # List all aidra0 containers"
+  echo "  $script_name --attach my-app          # Attach to existing 'my-app' container"
+  echo "  $script_name --vscode my-app          # Open VSCode connected to 'my-app' container"
+  echo "  $script_name --cursor my-app          # Open Cursor connected to 'my-app' container"
+  echo "  $script_name --webstorm my-app        # Open WebStorm connected to 'my-app' container"
+  echo "  $script_name --phpstorm my-app        # Open PHPStorm connected to 'my-app' container"
+  echo "  $script_name --stop my-app            # Stop running 'my-app' container"
+  echo "  $script_name --remove my-app          # Remove 'my-app' container (stops if running)"
+  echo "  $script_name view-scripts             # View content of scripts volume (uses config default or alpine)"
+  echo "  $script_name view-scripts --alpine   # View scripts using Alpine image"
+  echo "  $script_name view-scripts --image ubuntu:22.04  # View scripts using Ubuntu image"
+}
+
+# Function to show config management help
+show_config_help() {
+  local script_name
+  script_name=$(basename "$0")
+
+  echo "Configuration Management:"
+  echo ""
+  echo "Commands:"
+  echo "  $script_name --config set [--global] <key> <value>    Set a configuration value"
+  echo "  $script_name --config get <key>                       Get a configuration value"
+  echo "  $script_name --config list                            List all configuration values"
+  echo "  $script_name --config which <key>                     Show which config source provides a value"
+  echo "  $script_name --config sources                         List all config sources in precedence order"
+  echo ""
+  echo "Configuration keys:"
+  echo "  default_image              Default Docker image to use (default: alpine)"
+  echo "  custom_mounts              Custom mount definitions in JSON format"
+  echo "                            Format: [{\"host\":\"/path\",\"container\":\"/path\",\"mode\":\"rw|ro\"}]"
+  echo "  port_mappings              Port mapping definitions (simple or JSON format)"
+  echo "                            Simple: '8080:80 9090:90:udp'"
+  echo "                            JSON: '[{\"host\":\"8080\",\"container\":\"80\",\"protocol\":\"tcp\"}]'"
+  echo "  cpu_limit                  Default CPU limit (e.g., 1, 1.5, 2.0)"
+  echo "  memory_limit               Default memory limit (e.g., 512m, 1g, 2G)"
+  echo "  auto_check_updates         Enable automatic update checking (default: true)"
+  echo ""
+  echo "Configuration sources (highest to lowest priority):"
+  echo "  1. Command-line arguments (--image, --mount, --port, --cpu, --memory)"
+  echo "  2. Environment variables (AIDRA0_DEFAULT_IMAGE, AIDRA0_CUSTOM_MOUNTS, AIDRA0_PORT_MAPPINGS, AIDRA0_CPU_LIMIT, AIDRA0_MEMORY_LIMIT)"
+  echo "  3. Local project config (.aidra0.conf in current directory)"
+  echo "  4. Global/User config (~/.config/aidra0/config)"
+  echo "  5. Built-in defaults"
+  echo ""
+  echo "Examples:"
+  echo "  # Set local project config (default)"
+  echo "  $script_name --config set default_image node:18"
+  echo "  "
+  echo "  # Set global/user config"
+  echo "  $script_name --config set --global default_image ubuntu:22.04"
+  echo "  "
+  echo "  # Check which config provides a value"
+  echo "  $script_name --config which default_image"
+  echo "  "
+  echo "  # Override with environment variable"
+  echo "  AIDRA0_DEFAULT_IMAGE=python:3.11 $script_name"
+  echo "  "
+  echo "  # Set custom mounts in local config (default)"
+  echo "  $script_name --config set custom_mounts '[{\"host\":\"/data\",\"container\":\"/app/data\",\"mode\":\"rw\"}]'"
+  echo "  "
+  echo "  # Set port mappings in local config (simple format)"
+  echo "  $script_name --config set port_mappings '8080:80 9090:90:udp'"
+  echo "  "
+  echo "  # Set resource limits"
+  echo "  $script_name --config set cpu_limit 2.0"
+  echo "  $script_name --config set memory_limit 1g"
+  echo "  $script_name --config set --global cpu_limit 1.5"
+}
+
+# Function to handle config commands
+handle_config_command() {
+  local action="$1"
+  shift
+
+  case "$action" in
+  set)
+    local target="local"  # default target (git-like behavior)
+    local key=""
+    local value=""
+
+    # Check for --global flag
+    if [[ "$1" == "--global" ]]; then
+      target="global"
+      shift
+    fi
+
+    # Now check for key and value
+    if [[ $# -lt 2 ]]; then
+      echo "Error: config set requires key and value"
+      echo "Usage: --config set [--global] <key> <value>"
+      exit 1
+    fi
+
+    key="$1"
+    value="$2"
+
+    case "$key" in
+    default_image)
+      if [[ $# -ne 2 ]]; then
+        echo "Error: default_image requires exactly one value"
+        echo "Usage: --config set default_image <image>"
+        exit 1
+      fi
+      local value="$2"
+      set_config_value "$key" "$value" "$target"
+      if [[ "$target" == "global" ]]; then
+        echo "Set $key = $value (global)"
+      else
+        echo "Set $key = $value (local)"
+      fi
+      ;;
+
+    custom_mounts)
+      if [[ $# -ne 2 ]]; then
+        echo "Error: custom_mounts requires exactly one value"
+        echo "Usage: --config set custom_mounts '[{\"host\":\"/path\",\"container\":\"/path\",\"mode\":\"rw\"}]'"
+        exit 1
+      fi
+      local value="$2"
+      if validate_custom_mounts "$value"; then
+        set_config_value "$key" "$value" "$target"
+        if [[ "$target" == "global" ]]; then
+          echo "Set $key = $value (global)"
+        else
+          echo "Set $key = $value (local)"
+        fi
+      else
+        echo "Error: Invalid custom_mounts configuration"
+        exit 1
+      fi
+      ;;
+
+    port_mappings)
+      if [[ $# -ne 2 ]]; then
+        echo "Error: port_mappings requires exactly one value"
+        echo "Usage: --config set port_mappings '8080:80 9090:90:udp'"
+        echo "   or: --config set port_mappings '[{\"host\":\"8080\",\"container\":\"80\",\"protocol\":\"tcp\"}]'"
+        exit 1
+      fi
+      local value="$2"
+      if validate_port_mappings "$value"; then
+        set_config_value "$key" "$value" "$target"
+        if [[ "$target" == "global" ]]; then
+          echo "Set $key = $value (global)"
+        else
+          echo "Set $key = $value (local)"
+        fi
+      else
+        echo "Error: Invalid port_mappings configuration"
+        exit 1
+      fi
+      ;;
+
+    cpu_limit)
+      if [[ $# -ne 2 ]]; then
+        echo "Error: cpu_limit requires exactly one value"
+        echo "Usage: --config set cpu_limit <number>"
+        exit 1
+      fi
+      local value="$2"
+      if validate_cpu_limit "$value"; then
+        set_config_value "$key" "$value" "$target"
+        if [[ "$target" == "global" ]]; then
+          echo "Set $key = $value (global)"
+        else
+          echo "Set $key = $value (local)"
+        fi
+      else
+        echo "Error: Invalid cpu_limit value"
+        exit 1
+      fi
+      ;;
+
+    memory_limit)
+      if [[ $# -ne 2 ]]; then
+        echo "Error: memory_limit requires exactly one value"
+        echo "Usage: --config set memory_limit <size>"
+        exit 1
+      fi
+      local value="$2"
+      if validate_memory_limit "$value"; then
+        set_config_value "$key" "$value" "$target"
+        if [[ "$target" == "global" ]]; then
+          echo "Set $key = $value (global)"
+        else
+          echo "Set $key = $value (local)"
+        fi
+      else
+        echo "Error: Invalid memory_limit value"
+        exit 1
+      fi
+      ;;
+
+    auto_check_updates)
+      if [[ $# -ne 2 ]]; then
+        echo "Error: auto_check_updates requires exactly one value"
+        echo "Usage: --config set auto_check_updates <true|false>"
+        exit 1
+      fi
+      local value="$2"
+      if [[ "$value" != "true" && "$value" != "false" ]]; then
+        echo "Error: auto_check_updates must be 'true' or 'false'"
+        exit 1
+      fi
+      set_config_value "$key" "$value" "$target"
+      if [[ "$target" == "global" ]]; then
+        echo "Set $key = $value (global)"
+      else
+        echo "Set $key = $value (local)"
+      fi
+      ;;
+
+    *)
+      echo "Error: Unknown configuration key '$key'"
+      echo "Available keys: default_image, custom_mounts, port_mappings, cpu_limit, memory_limit, auto_check_updates"
+      exit 1
+      ;;
+    esac
+    ;;
+  get)
+    if [[ $# -lt 1 ]]; then
+      echo "Error: config get requires a key"
+      echo "Usage: --config get <key>"
+      exit 1
+    fi
+    local key="$1"
+    local value
+
+    case "$key" in
+    default_image)
+      if [[ $# -ne 1 ]]; then
+        echo "Error: default_image takes no additional arguments"
+        echo "Usage: --config get default_image"
+        exit 1
+      fi
+      value=$(get_config_value "$key" "alpine")
+      echo "$value"
+      ;;
+
+    custom_mounts)
+      if [[ $# -ne 1 ]]; then
+        echo "Error: custom_mounts takes no additional arguments"
+        echo "Usage: --config get custom_mounts"
+        exit 1
+      fi
+      value=$(get_config_value "$key" "[]")
+      echo "$value"
+      ;;
+
+    cpu_limit)
+      if [[ $# -ne 1 ]]; then
+        echo "Error: cpu_limit takes no additional arguments"
+        echo "Usage: --config get cpu_limit"
+        exit 1
+      fi
+      value=$(get_config_value "$key" "")
+      echo "$value"
+      ;;
+
+    memory_limit)
+      if [[ $# -ne 1 ]]; then
+        echo "Error: memory_limit takes no additional arguments"
+        echo "Usage: --config get memory_limit"
+        exit 1
+      fi
+      value=$(get_config_value "$key" "")
+      echo "$value"
+      ;;
+
+    auto_check_updates)
+      if [[ $# -ne 1 ]]; then
+        echo "Error: auto_check_updates takes no additional arguments"
+        echo "Usage: --config get auto_check_updates"
+        exit 1
+      fi
+      value=$(get_config_value "$key" "true")
+      echo "$value"
+      ;;
+
+    *)
+      echo "Error: Unknown configuration key '$key'"
+      echo "Available keys: default_image, custom_mounts, port_mappings, cpu_limit, memory_limit, auto_check_updates"
+      exit 1
+      ;;
+    esac
+    ;;
+  list)
+    list_config
+    ;;
+  which)
+    if [[ $# -lt 1 ]]; then
+      echo "Error: config which requires a key"
+      echo "Usage: --config which <key>"
+      exit 1
+    fi
+    local key="$1"
+    case "$key" in
+    default_image | custom_mounts | cpu_limit | memory_limit | auto_check_updates)
+      local source=$(get_config_source "$key")
+      local value=$(get_config_value "$key" "")
+      echo "$key = $value"
+      echo "Source: $source"
+      ;;
+    *)
+      echo "Error: Unknown configuration key '$key'"
+      echo "Available keys: default_image, custom_mounts, port_mappings, cpu_limit, memory_limit, auto_check_updates"
+      exit 1
+      ;;
+    esac
+    ;;
+  sources)
+    list_config_sources
+    ;;
+  *)
+    echo "Error: Unknown config action '$action'"
+    echo "Available actions: set, get, list, which, sources"
+    show_config_help
+    exit 1
+    ;;
+  esac
+}
+
+# Function to parse view-scripts specific arguments
+parse_view_scripts_arguments() {
+  local view_image=""
+  local force_alpine=false
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    --alpine)
+      force_alpine=true
+      shift
+      ;;
+    --image)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --image requires a value"
+        echo "Usage: view-scripts --image <image>"
+        exit 1
+      fi
+      view_image="$2"
+      shift 2
+      ;;
+    *)
+      echo "Error: Unknown option for view-scripts: $1"
+      echo "Usage: view-scripts [--alpine] [--image <image>]"
+      exit 1
+      ;;
+    esac
+  done
+
+  # Determine which image to use
+  if [[ "$force_alpine" == true ]]; then
+    view_image="alpine"
+  elif [[ -z "$view_image" ]]; then
+    # Use default behavior: config default or alpine
+    view_image=$(get_config_value "default_image" "alpine")
+  fi
+
+  view_scripts_volume "$view_image"
+}
+
+# Function to parse command line arguments
+parse_arguments() {
+  # Get defaults from config
+  DOCKER_IMAGE=$(get_config_value "default_image" "alpine")
+  CONTAINER_NAME_ARG=""
+  # Array to store custom mounts from CLI
+  CLI_CUSTOM_MOUNTS=()
+  # Array to store networks from CLI
+  CLI_NETWORKS=()
+  # Array to store port mappings from CLI
+  CLI_PORT_MAPPINGS=()
+  # Resource limits from CLI
+  CLI_CPU_LIMIT=""
+  CLI_MEMORY_LIMIT=""
+  # Debug mode flag
+  DEBUG_MODE=false
+  # Skip update check flag
+  SKIP_UPDATE_CHECK=false
+  # VSCode mode flag
+  VSCODE_MODE=false
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    --image)
+      DOCKER_IMAGE="$2"
+      shift 2
+      ;;
+
+    --mount)
+      if [[ $# -eq 1 ]]; then
+        echo "Error: --mount requires a value"
+        echo "Usage: --mount /host/path:/container/path[:mode]"
+        exit 1
+      fi
+      CLI_CUSTOM_MOUNTS+=("$2")
+      shift 2
+      ;;
+
+    --mount-ro)
+      if [[ $# -eq 1 ]]; then
+        echo "Error: --mount-ro requires a value"
+        echo "Usage: --mount-ro /host/path:/container/path"
+        exit 1
+      fi
+      CLI_CUSTOM_MOUNTS+=("$2:ro")
+      shift 2
+      ;;
+
+    --network)
+      if [[ $# -eq 1 ]]; then
+        echo "Error: --network requires a value"
+        echo "Usage: --network <network-name>"
+        exit 1
+      fi
+      CLI_NETWORKS+=("$2")
+      shift 2
+      ;;
+
+    --port)
+      if [[ $# -eq 1 ]]; then
+        echo "Error: --port requires a value"
+        echo "Usage: --port <host_port>:<container_port>[:<protocol>]"
+        exit 1
+      fi
+      CLI_PORT_MAPPINGS+=("$2")
+      shift 2
+      ;;
+
+    --cpu)
+      if [[ $# -eq 1 ]]; then
+        echo "Error: --cpu requires a value"
+        echo "Usage: --cpu <number>"
+        exit 1
+      fi
+      if validate_cpu_limit "$2"; then
+        CLI_CPU_LIMIT="$2"
+      else
+        echo "Invalid CPU limit value"
+        exit 1
+      fi
+      shift 2
+      ;;
+
+    --memory)
+      if [[ $# -eq 1 ]]; then
+        echo "Error: --memory requires a value"
+        echo "Usage: --memory <size>"
+        exit 1
+      fi
+      if validate_memory_limit "$2"; then
+        CLI_MEMORY_LIMIT="$2"
+      else
+        echo "Invalid memory limit value"
+        exit 1
+      fi
+      shift 2
+      ;;
+
+    --config)
+      if [[ $# -eq 1 ]]; then
+        show_config_help
+        exit 0
+      fi
+      shift
+      handle_config_command "$@"
+      exit 0
+      ;;
+    view-scripts | --view-scripts)
+      shift
+      parse_view_scripts_arguments "$@"
+      exit 0
+      ;;
+    --list)
+      list_containers
+      exit 0
+      ;;
+    --attach)
+      if [[ $# -eq 1 ]]; then
+        # Auto-detect container name from current folder
+        local detected_name=$(basename "$(pwd)")
+        echo "No container name provided. Using detected name: $detected_name"
+        attach_to_container "$detected_name"
+      else
+        shift
+        attach_to_container "$1"
+      fi
+      exit 0
+      ;;
+    --vscode)
+      if [[ $# -eq 1 ]]; then
+        # Auto-detect container name from current folder
+        local detected_name=$(basename "$(pwd)")
+        echo "No container name provided. Using detected name: $detected_name"
+        open_container_with_tool "vscode" "$detected_name"
+      else
+        shift
+        open_container_with_tool "vscode" "$1"
+      fi
+      exit 0
+      ;;
+    --cursor)
+      if [[ $# -eq 1 ]]; then
+        # Auto-detect container name from current folder
+        local detected_name=$(basename "$(pwd)")
+        echo "No container name provided. Using detected name: $detected_name"
+        open_container_with_tool "cursor" "$detected_name"
+      else
+        shift
+        open_container_with_tool "cursor" "$1"
+      fi
+      exit 0
+      ;;
+    --webstorm)
+      if [[ $# -eq 1 ]]; then
+        # Auto-detect container name from current folder
+        local detected_name=$(basename "$(pwd)")
+        echo "No container name provided. Using detected name: $detected_name"
+        open_container_with_tool "webstorm" "$detected_name"
+      else
+        shift
+        open_container_with_tool "webstorm" "$1"
+      fi
+      exit 0
+      ;;
+    --phpstorm)
+      if [[ $# -eq 1 ]]; then
+        # Auto-detect container name from current folder
+        local detected_name=$(basename "$(pwd)")
+        echo "No container name provided. Using detected name: $detected_name"
+        open_container_with_tool "phpstorm" "$detected_name"
+      else
+        shift
+        open_container_with_tool "phpstorm" "$1"
+      fi
+      exit 0
+      ;;
+    --stop)
+      if [[ $# -eq 1 ]]; then
+        # Auto-detect container name from current folder
+        local detected_name=$(basename "$(pwd)")
+        echo "No container name provided. Using detected name: $detected_name"
+        stop_container "$detected_name"
+      else
+        shift
+        stop_container "$1"
+      fi
+      exit 0
+      ;;
+    --remove)
+      if [[ $# -eq 1 ]]; then
+        # Auto-detect container name from current folder
+        local detected_name=$(basename "$(pwd)")
+        echo "No container name provided. Using detected name: $detected_name"
+        remove_container "$detected_name"
+      else
+        shift
+        remove_container "$1"
+      fi
+      exit 0
+      ;;
+    --debug)
+      DEBUG_MODE=true
+      shift
+      ;;
+    --version)
+      show_version
+      exit 0
+      ;;
+    --upgrade)
+      upgrade_script
+      exit $?
+      ;;
+    --no-check)
+      SKIP_UPDATE_CHECK=true
+      shift
+      ;;
+    -h | --help)
+      show_usage
+      exit 0
+      ;;
+    -*)
+      echo "Error: Unknown option $1"
+      show_usage
+      exit 1
+      ;;
+    *)
+      if [[ -z "$CONTAINER_NAME_ARG" ]]; then
+        CONTAINER_NAME_ARG="$1"
+      else
+        echo "Error: Multiple container names specified"
+        show_usage
+        exit 1
+      fi
+      shift
+      ;;
+    esac
+  done
+}
+
+# Function to check if Docker image exists locally
+check_image_exists_locally() {
+  local image="$1"
+  docker image inspect "$image" >/dev/null 2>&1
+}
+
+# Function to check if image exists on Docker Hub
+check_image_on_dockerhub() {
+  local image="$1"
+  local repo_name
+  local tag="latest"
+
+  # Parse image name and tag
+  if [[ "$image" == *":"* ]]; then
+    repo_name="${image%:*}"
+    tag="${image#*:}"
+  else
+    repo_name="$image"
+  fi
+
+  # Handle official images (no namespace)
+  if [[ "$repo_name" != *"/"* ]]; then
+    repo_name="library/$repo_name"
+  fi
+
+  # Check Docker Hub API
+  local url="https://hub.docker.com/v2/repositories/$repo_name/tags/$tag"
+  local response
+  response=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
+
+  if [[ "$response" == "200" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Function to get Docker Hub URL for image
+get_dockerhub_url() {
+  local image="$1"
+  local repo_name
+
+  # Parse image name (remove tag)
+  if [[ "$image" == *":"* ]]; then
+    repo_name="${image%:*}"
+  else
+    repo_name="$image"
+  fi
+
+  # Handle official images
+  if [[ "$repo_name" != *"/"* ]]; then
+    echo "https://hub.docker.com/_/$repo_name"
+  else
+    echo "https://hub.docker.com/r/$repo_name"
+  fi
+}
+
+# Function to validate and prepare Docker image
+validate_and_prepare_image() {
+  local image="$1"
+
+  echo "Checking Docker image: $image"
+
+  # Check if image exists locally
+  if check_image_exists_locally "$image"; then
+    echo "✓ Image '$image' found locally"
+    return 0
+  fi
+
+  echo "Image '$image' not found locally, checking Docker Hub..."
+
+  # Check if image exists on Docker Hub
+  if check_image_on_dockerhub "$image"; then
+    local hub_url
+    hub_url=$(get_dockerhub_url "$image")
+    echo "✓ Image '$image' found on Docker Hub"
+    echo "Docker Hub URL: $hub_url"
+    echo ""
+
+    # Ask user for confirmation
+    read -p "Do you want to pull this image? (y/N): " -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      echo "Pulling image '$image'..."
+      if docker pull "$image"; then
+        echo "✓ Image '$image' pulled successfully"
+        return 0
+      else
+        echo "✗ Failed to pull image '$image'"
+        return 1
+      fi
+    else
+      echo "Image pull cancelled by user"
+      return 1
+    fi
+  else
+    echo "✗ Image '$image' not found on Docker Hub"
+    echo "Please check the image name and try again."
+    echo "You can search for images at: https://hub.docker.com"
+    return 1
+  fi
+}
+
+
+
+# Function to list all aidra0 containers
+list_containers() {
+  echo "aidra0 containers:"
+  echo ""
+
+  # Get all container names with prefix
+  local container_names
+  container_names=$(docker ps -a --format "{{.Names}}" --filter "name=aidra0-" 2>/dev/null)
+
+  if [ -z "$container_names" ]; then
+    echo "No aidra0 containers found."
+    echo "Run 'aidra0 [name]' to create your first container."
+    return 0
+  fi
+
+  echo "NAME                    STATUS                  MOUNTED DIRECTORY"
+
+  # Process each container
+  for container_name in $container_names; do
+    # Extract base name by removing "aidra0-" prefix
+    base_name="${container_name#aidra0-}"
+
+    # Get container status
+    status=$(docker ps -a --format "{{.Status}}" --filter "name=^$container_name$" 2>/dev/null)
+
+    # Get the mounted directory from container inspect
+    mounted_dir=$(docker inspect "$container_name" --format '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)
+
+    # If we can't get the mount info, show "Unknown"
+    if [ -z "$mounted_dir" ]; then
+      mounted_dir="Unknown"
+    fi
+
+    printf "%-22s %-22s %s\n" "$base_name" "$status" "$mounted_dir"
+  done
+
+  echo ""
+  echo "To attach to a container: aidra0 --attach <name>"
+  echo "To stop a container: aidra0 --stop <name>"
+  echo "To remove a container: aidra0 --remove <name>"
+  echo "To create a new container: aidra0 [name]"
+}
+
+# Helper function to validate container exists
+validate_container_exists() {
+  local base_name="$1"
+  local action="$2"
+
+  if [ -z "$base_name" ]; then
+    echo "Error: $action requires a container name"
+    echo "Usage: aidra0 $action <name>"
+    echo ""
+    echo "Available containers:"
+    list_containers
+    exit 1
+  fi
+
+  local container_name="aidra0-$base_name"
+
+  # Check if container exists
+  if ! docker ps -a --format "{{.Names}}" | grep -q "^$container_name$"; then
+    echo "Error: Container '$base_name' not found."
+    echo ""
+    echo "Available containers:"
+    list_containers
+    exit 1
+  fi
+
+  echo "$container_name"
+}
+
+# Helper function to ensure container is running
+ensure_container_running() {
+  local container_name="$1"
+  local base_name="$2"
+
+  if ! docker ps --format "{{.Names}}" | grep -q "^$container_name$"; then
+    echo "Starting container '$base_name'..."
+    docker start "$container_name"
+    if [ $? -ne 0 ]; then
+      echo "Failed to start container '$base_name'."
+      exit 1
+    fi
+    # Wait a moment for container to fully start
+    sleep 1
+  fi
+}
+
+# Helper function to convert container name to hex for URIs
+container_name_to_hex() {
+  local container_name="$1"
+  printf "%s" "$container_name" | od -An -tx1 | tr -d ' \n'
+}
+
+# Helper function to check if a command exists
+check_command_exists() {
+  local cmd="$1"
+  local tool_name="$2"
+  local install_url="$3"
+
+  if ! command -v "$cmd" &> /dev/null; then
+    echo "Error: $tool_name CLI '$cmd' command not found."
+    echo "Please ensure $tool_name is installed and the '$cmd' command is in your PATH."
+    if [ -n "$install_url" ]; then
+      echo "You can install it from: $install_url"
+    fi
+    return 1
+  fi
+  return 0
+}
+
+# Function to attach to existing container
+attach_to_container() {
+  local base_name="$1"
+  local container_name
+
+  container_name=$(validate_container_exists "$base_name" "--attach")
+
+  # Check if container is running
+  if docker ps --format "{{.Names}}" | grep -q "^$container_name$"; then
+    echo "Attaching to running container '$base_name'..."
+    # Detect configured shell or fallback to /bin/bash
+    SHELL_CMD=$(docker exec "$container_name" sh -c 'echo $SHELL' 2>/dev/null || echo "/bin/bash")
+    if [ -z "$SHELL_CMD" ] || ! docker exec "$container_name" test -x "$SHELL_CMD" 2>/dev/null; then
+      SHELL_CMD="/bin/bash"
+    fi
+    docker exec -it "$container_name" "$SHELL_CMD"
+  else
+    echo "Starting and attaching to container '$base_name'..."
+    docker start -ai "$container_name"
+  fi
+}
+
+# Function to open VSCode connected to container
+open_tool_vscode() {
+  local base_name="$1"
+  local container_name="$2"
+
+  # Convert container name to hex for VSCode URI
+  local hex_name
+  hex_name=$(container_name_to_hex "$container_name")
+
+  # Build VSCode URI
+  local vscode_uri="vscode-remote://attached-container+${hex_name}/app"
+
+  echo "Opening VSCode connected to container '$base_name'..."
+  echo "Container name: $container_name"
+  echo "VSCode URI: $vscode_uri"
+
+  # Check if VSCode is installed
+  if ! check_command_exists "code" "VSCode" "https://code.visualstudio.com/"; then
+    exit 1
+  fi
+
+  # Open VSCode
+  code --folder-uri="$vscode_uri"
+
+  if [ $? -eq 0 ]; then
+    echo "VSCode opened successfully."
+  else
+    echo "Failed to open VSCode."
+    echo "Make sure you have the 'Dev Containers' extension installed in VSCode."
+    exit 1
+  fi
+}
+
+# Function to open Cursor connected to container
+open_tool_cursor() {
+  local base_name="$1"
+  local container_name="$2"
+
+  # Convert container name to hex for Cursor URI
+  local hex_name
+  hex_name=$(container_name_to_hex "$container_name")
+
+  # Build Cursor URI (same format as VSCode)
+  local cursor_uri="vscode-remote://attached-container+${hex_name}/app"
+
+  echo "Opening Cursor connected to container '$base_name'..."
+  echo "Container name: $container_name"
+  echo "Cursor URI: $cursor_uri"
+
+  # Check if Cursor is installed
+  if ! check_command_exists "cursor" "Cursor" "https://cursor.sh/"; then
+    exit 1
+  fi
+
+  # Open Cursor
+  cursor --folder-uri="$cursor_uri"
+
+  if [ $? -eq 0 ]; then
+    echo "Cursor opened successfully."
+  else
+    echo "Failed to open Cursor."
+    echo "Make sure you have the 'Dev Containers' extension installed in Cursor."
+    exit 1
+  fi
+}
+
+# Function to open JetBrains IDE connected to container
+open_tool_jetbrains() {
+  local tool_name="$1"
+  local base_name="$2"
+  local container_name="$3"
+
+  # JetBrains IDEs configuration
+  local tool_display_name
+  local tool_command
+  local install_url
+
+  case "$tool_name" in
+    webstorm)
+      tool_display_name="WebStorm"
+      tool_command="webstorm"
+      install_url="https://www.jetbrains.com/webstorm/"
+      ;;
+    phpstorm)
+      tool_display_name="PHPStorm"
+      tool_command="phpstorm"
+      install_url="https://www.jetbrains.com/phpstorm/"
+      ;;
+    pycharm)
+      tool_display_name="PyCharm"
+      tool_command="pycharm"
+      install_url="https://www.jetbrains.com/pycharm/"
+      ;;
+    idea)
+      tool_display_name="IntelliJ IDEA"
+      tool_command="idea"
+      install_url="https://www.jetbrains.com/idea/"
+      ;;
+    *)
+      echo "Error: Unknown JetBrains tool '$tool_name'"
+      exit 1
+      ;;
+  esac
+
+  echo "Opening $tool_display_name for container '$base_name'..."
+  echo "Container name: $container_name"
+
+  # Check if the JetBrains tool is installed
+  if ! check_command_exists "$tool_command" "$tool_display_name" "$install_url"; then
+    echo "Note: Make sure you have JetBrains Toolbox installed for easy command-line access."
+    exit 1
+  fi
+
+  # Get the current working directory (which is mounted to /app in container)
+  local project_path="$(pwd)"
+
+  echo "Opening project at: $project_path"
+  echo ""
+  echo "Important: $tool_display_name will open the local project directory."
+  echo "To work with the container:"
+  echo "  1. Use the Docker plugin in $tool_display_name"
+  echo "  2. Configure remote interpreter using container '$container_name'"
+  echo "  3. Or use File > Remote Development > Docker for full remote development"
+
+  # Open JetBrains IDE with the project directory
+  # According to docs, we can simply pass the directory path
+  "$tool_command" "$project_path" &
+
+  if [ $? -eq 0 ]; then
+    echo ""
+    echo "$tool_display_name launched successfully."
+    echo "Container '$container_name' is running and ready for connection."
+  else
+    echo "Failed to launch $tool_display_name."
+    echo "Try running: $tool_command $project_path"
+    exit 1
+  fi
+}
+
+# Generic function to open any tool with container
+open_container_with_tool() {
+  local tool="$1"
+  local base_name="$2"
+  local container_name
+
+  # Validate container exists
+  container_name=$(validate_container_exists "$base_name" "--$tool")
+
+  # Ensure container is running
+  ensure_container_running "$container_name" "$base_name"
+
+  # Call the appropriate tool function
+  case "$tool" in
+    vscode)
+      open_tool_vscode "$base_name" "$container_name"
+      ;;
+    cursor)
+      open_tool_cursor "$base_name" "$container_name"
+      ;;
+    webstorm)
+      open_tool_jetbrains "webstorm" "$base_name" "$container_name"
+      ;;
+    phpstorm)
+      open_tool_jetbrains "phpstorm" "$base_name" "$container_name"
+      ;;
+    # Add more JetBrains tools here:
+    # pycharm)
+    #   open_tool_jetbrains "pycharm" "$base_name" "$container_name"
+    #   ;;
+    # idea)
+    #   open_tool_jetbrains "idea" "$base_name" "$container_name"
+    #   ;;
+    *)
+      echo "Error: Unknown tool '$tool'"
+      exit 1
+      ;;
+  esac
+}
+
+# Function to stop existing container
+stop_container() {
+  local base_name="$1"
+
+  if [ -z "$base_name" ]; then
+    echo "Error: --stop requires a container name"
+    echo "Usage: aidra0 --stop <name>"
+    echo ""
+    echo "Available containers:"
+    list_containers
+    exit 1
+  fi
+
+  local container_name="aidra0-$base_name"
+
+  # Check if container exists
+  if ! docker ps -a --format "{{.Names}}" | grep -q "^$container_name$"; then
+    echo "Error: Container '$base_name' not found."
+    echo ""
+    echo "Available containers:"
+    list_containers
+    exit 1
+  fi
+
+  # Check if container is running
+  if docker ps --format "{{.Names}}" | grep -q "^$container_name$"; then
+    echo "Stopping container '$base_name'..."
+    docker stop "$container_name"
+    if [ $? -eq 0 ]; then
+      echo "Container '$base_name' stopped successfully."
+    else
+      echo "Failed to stop container '$base_name'."
+      exit 1
+    fi
+  else
+    echo "Container '$base_name' is not running."
+  fi
+}
+
+# Function to remove existing container
+remove_container() {
+  local base_name="$1"
+
+  if [ -z "$base_name" ]; then
+    echo "Error: --remove requires a container name"
+    echo "Usage: aidra0 --remove <name>"
+    echo ""
+    echo "Available containers:"
+    list_containers
+    exit 1
+  fi
+
+  local container_name="aidra0-$base_name"
+
+  # Check if container exists
+  if ! docker ps -a --format "{{.Names}}" | grep -q "^$container_name$"; then
+    echo "Error: Container '$base_name' not found."
+    echo ""
+    echo "Available containers:"
+    list_containers
+    exit 1
+  fi
+
+  # Check if container is running and offer to stop it
+  if docker ps --format "{{.Names}}" | grep -q "^$container_name$"; then
+    echo "Container '$base_name' is currently running."
+    echo "Do you want to stop it before removing? (y/n)"
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+      echo "Stopping container '$base_name'..."
+      docker stop "$container_name"
+      if [ $? -ne 0 ]; then
+        echo "Failed to stop container '$base_name'."
+        exit 1
+      fi
+    else
+      echo "Cannot remove running container. Use --stop first or answer 'y' to stop automatically."
+      exit 1
+    fi
+  fi
+
+  # Remove the container
+  echo "Removing container '$base_name'..."
+  docker rm "$container_name"
+  if [ $? -eq 0 ]; then
+    echo "Container '$base_name' removed successfully."
+  else
+    echo "Failed to remove container '$base_name'."
+    exit 1
+  fi
+}
+
+# Function to validate mount format
+validate_mount_format() {
+  local mount_spec="$1"
+
+  # Check if format is host:container[:mode]
+  if [[ ! "$mount_spec" =~ ^[^:]+:[^:]+(:.*)?$ ]]; then
+    echo "Error: Invalid mount format '$mount_spec'. Expected format: /host/path:/container/path[:mode]"
+    return 1
+  fi
+
+  # Parse components
+  local host_path=$(echo "$mount_spec" | cut -d':' -f1)
+  local container_path=$(echo "$mount_spec" | cut -d':' -f2)
+  local mode=$(echo "$mount_spec" | cut -d':' -f3)
+
+  # Default mode if not specified
+  if [[ -z "$mode" ]]; then
+    mode="rw"
+  fi
+
+  # Validate mode
+  if [[ "$mode" != "rw" && "$mode" != "ro" ]]; then
+    echo "Error: Invalid mount mode '$mode'. Must be 'rw' or 'ro'"
+    return 1
+  fi
+
+  # Validate host path exists
+  if [[ ! -e "$host_path" ]]; then
+    echo "Error: Host path does not exist: $host_path"
+    return 1
+  fi
+
+  # Validate container path is absolute
+  if [[ "$container_path" != /* ]]; then
+    echo "Error: Container path must be absolute: $container_path"
+    return 1
+  fi
+
+  return 0
+}
+
+# Function to validate network exists
+validate_network_exists() {
+  local network="$1"
+
+  # Check if network exists
+  if ! docker network ls --format "{{.Name}}" 2>/dev/null | grep -q "^${network}$"; then
+    echo "Warning: Network '$network' does not exist" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# Function to build mount arguments for docker run
+build_mount_args() {
+  local -a mount_args=()
+
+  # Always add default mounts
+  mount_args+=("-v" "$(pwd):/app")
+  mount_args+=("-v" "aidra0-user-scripts:/user-scripts")
+
+  # Add custom mounts from config
+  local custom_mounts=$(get_config_value "custom_mounts" "[]")
+  if [[ "$custom_mounts" != "[]" ]]; then
+    local temp_file=$(mktemp)
+    parse_custom_mounts "$custom_mounts" > "$temp_file"
+
+    while IFS=':' read -r host container mode; do
+      if [[ -n "$host" && -n "$container" ]]; then
+        mount_args+=("-v" "$host:$container:$mode")
+      fi
+    done < "$temp_file"
+
+    rm "$temp_file"
+  fi
+
+  # Add CLI custom mounts (override config)
+  if [[ ${#CLI_CUSTOM_MOUNTS[@]} -gt 0 ]]; then
+    for mount_spec in "${CLI_CUSTOM_MOUNTS[@]}"; do
+      if validate_mount_format "$mount_spec"; then
+        # Parse mount spec
+        local host_path=$(echo "$mount_spec" | cut -d':' -f1)
+        local container_path=$(echo "$mount_spec" | cut -d':' -f2)
+        local mode=$(echo "$mount_spec" | cut -d':' -f3)
+
+        # Default mode if not specified
+        if [[ -z "$mode" ]]; then
+          mode="rw"
+        fi
+
+        mount_args+=("-v" "$host_path:$container_path:$mode")
+      else
+        echo "Exiting due to invalid mount specification."
+        exit 1
+      fi
+    done
+  fi
+
+  # Output mount arguments
+  printf '%s\n' "${mount_args[@]}"
+}
+
+# Function to build network arguments for docker run
+build_network_args() {
+  local -a network_args=()
+
+  # Add CLI networks
+  if [[ ${#CLI_NETWORKS[@]} -gt 0 ]]; then
+    for network in "${CLI_NETWORKS[@]}"; do
+      # Validate network exists (show warning but continue)
+      validate_network_exists "$network"
+      network_args+=("--network" "$network")
+    done
+  fi
+
+  # Output network arguments
+  printf '%s\n' "${network_args[@]}"
+}
+
+# Function to build resource arguments for docker run
+build_resource_args() {
+  local -a resource_args=()
+
+  # Determine CPU limit (CLI overrides config)
+  local cpu_limit="$CLI_CPU_LIMIT"
+  if [[ -z "$cpu_limit" ]]; then
+    cpu_limit=$(get_config_value "cpu_limit" "")
+  fi
+
+  if [[ -n "$cpu_limit" ]]; then
+    resource_args+=("--cpus" "$cpu_limit")
+  fi
+
+  # Determine memory limit (CLI overrides config)
+  local memory_limit="$CLI_MEMORY_LIMIT"
+  if [[ -z "$memory_limit" ]]; then
+    memory_limit=$(get_config_value "memory_limit" "")
+  fi
+
+  if [[ -n "$memory_limit" ]]; then
+    resource_args+=("--memory" "$memory_limit")
+  fi
+
+  # Output resource arguments
+  printf '%s\n' "${resource_args[@]}"
+}
+
+# Function to build port arguments for docker run
+build_port_args() {
+  local -a port_args=()
+
+  # Add port mappings from config
+  local port_mappings=$(get_config_value "port_mappings" "[]")
+  if [[ "$port_mappings" != "[]" ]]; then
+    local temp_file=$(mktemp)
+    parse_port_mappings "$port_mappings" > "$temp_file"
+
+    while IFS=':' read -r host container protocol; do
+      if [[ -n "$host" && -n "$container" ]]; then
+        port_args+=("-p" "$host:$container/$protocol")
+      fi
+    done < "$temp_file"
+
+    rm "$temp_file"
+  fi
+
+  # Add CLI port mappings (override config)
+  if [[ ${#CLI_PORT_MAPPINGS[@]} -gt 0 ]]; then
+    for port_spec in "${CLI_PORT_MAPPINGS[@]}"; do
+      if validate_port_format "$port_spec"; then
+        # Parse port spec
+        local host_port=$(echo "$port_spec" | cut -d':' -f1)
+        local container_port=$(echo "$port_spec" | cut -d':' -f2)
+        local protocol=$(echo "$port_spec" | cut -d':' -f3)
+
+        # Default protocol if not specified
+        if [[ -z "$protocol" ]]; then
+          protocol="tcp"
+        fi
+
+        port_args+=("-p" "$host_port:$container_port/$protocol")
+      else
+        echo "Exiting due to invalid port specification."
+        exit 1
+      fi
+    done
+  fi
+
+  # Output port arguments
+  printf '%s\n' "${port_args[@]}"
+}
+
+# Function to build hostname arguments for docker run
+build_hostname_args() {
+  local -a hostname_args=()
+
+  # Set hostname to aidra0-<project-name>
+  hostname_args+=("--hostname" "aidra0-$BASE_NAME")
+
+  # Output hostname arguments
+  printf '%s\n' "${hostname_args[@]}"
+}
+
+# Function to view scripts volume content
+view_scripts_volume() {
+  local view_image="$1"
+
+  echo "Viewing scripts volume content..."
+
+  # Check if aidra0-user-scripts exists
+  if ! docker volume ls | grep -q "aidra0-user-scripts"; then
+    echo "Error: Scripts volume 'aidra0-user-scripts' does not exist."
+    echo "You need to create a container first to initialize the scripts volume."
+    exit 1
+  fi
+
+  # Validate the image
+  echo "Checking Docker image: $view_image"
+  if ! check_image_exists_locally "$view_image"; then
+    echo "Image '$view_image' not found locally, checking Docker Hub..."
+    if check_image_on_dockerhub "$view_image"; then
+      echo "✓ Image '$view_image' found on Docker Hub"
+      local docker_hub_url
+      docker_hub_url=$(get_dockerhub_url "$view_image")
+      echo "Docker Hub URL: $docker_hub_url"
+      echo ""
+
+      read -p "Do you want to pull this image? (y/N): " -r
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Pulling image '$view_image'..."
+        if docker pull "$view_image"; then
+          echo "✓ Image '$view_image' pulled successfully"
+        else
+          echo "✗ Failed to pull image '$view_image'"
+          exit 1
+        fi
+      else
+        echo "Image pull cancelled. Cannot proceed without the image."
+        exit 1
+      fi
+    else
+      echo "✗ Image '$view_image' not found on Docker Hub"
+      echo "Please check the image name and try again."
+      exit 1
+    fi
+  else
+    echo "✓ Image '$view_image' found locally"
+  fi
+
+  # Create unique temporary container name
+  local temp_container="aidra0-view-$(date +%s)"
+
+  echo "Creating temporary container to view scripts volume..."
+  echo "Container name: $temp_container"
+  echo "Using image: $view_image"
+  echo "Volume: aidra0-user-scripts -> /user-scripts"
+  echo ""
+
+  # Run temporary container with volume mounted
+  docker run -it --rm \
+    --name "$temp_container" \
+    --hostname "$temp_container" \
+    -v "aidra0-user-scripts:/user-scripts" \
+    -w "/user-scripts" \
+    "$view_image"
+}
+
+# Parse command line arguments and set defaults
+if [[ "$BATS_TEST_MODE" != "1" ]]; then
+  parse_arguments "$@"
+else
+  # Set defaults for test mode
+  DOCKER_IMAGE=$(get_config_value "default_image" "alpine")
+  CONTAINER_NAME_ARG=""
+  CLI_CUSTOM_MOUNTS=()
+  CLI_CPU_LIMIT=""
+  CLI_MEMORY_LIMIT=""
+fi
+
+# Get base name from argument or use current folder name
+BASE_NAME=${CONTAINER_NAME_ARG:-$(basename "$(pwd)")}
+CONTAINER_NAME="aidra0-$BASE_NAME"
+
+# Exit early if in test mode (after variable definitions)
+if [[ "$BATS_TEST_MODE" == "1" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+
+# Check for updates (unless disabled)
+if [[ "$SKIP_UPDATE_CHECK" != "true" ]]; then
+  check_for_updates
+fi
+
+# Validate and prepare the Docker image
+if ! validate_and_prepare_image "$DOCKER_IMAGE"; then
+  echo "Exiting due to image validation failure."
+  exit 1
+fi
+
+# Check if container already exists
+if docker ps -a --format "table {{.Names}}" | grep -q "^$CONTAINER_NAME$"; then
+  # Get container status
+  container_status=$(docker ps -a --format "{{.Status}}" --filter "name=^$CONTAINER_NAME$")
+
+  echo "Container '$BASE_NAME' already exists."
+  echo "Status: $container_status"
+  echo ""
+  echo "What would you like to do?"
+  echo "1) Exit"
+  echo "2) Remove old container and create new one"
+  echo "3) Use existing container"
+  read -p "Choose option (1-3): " choice
+
+  case $choice in
+  1)
+    echo "Exiting..."
+    exit 0
+    ;;
+  2)
+    echo "Removing existing container..."
+    docker rm -f "$CONTAINER_NAME"
+    ;;
+  3)
+    echo "Using existing container..."
+    if docker ps --format "table {{.Names}}" | grep -q "^$CONTAINER_NAME$"; then
+      echo "Container is already running. Attaching to it..."
+      # Detect configured shell or fallback to /bin/bash
+      SHELL_CMD=$(docker exec "$CONTAINER_NAME" sh -c 'echo $SHELL' 2>/dev/null || echo "/bin/bash")
+      if [ -z "$SHELL_CMD" ] || ! docker exec "$CONTAINER_NAME" test -x "$SHELL_CMD" 2>/dev/null; then
+        SHELL_CMD="/bin/bash"
+      fi
+      docker exec -it "$CONTAINER_NAME" "$SHELL_CMD"
+    else
+      echo "Starting existing container..."
+      docker start -ai "$CONTAINER_NAME"
+    fi
+    exit 0
+    ;;
+  *)
+    echo "Invalid option. Exiting..."
+    exit 1
+    ;;
+  esac
+fi
+
+# Create docker volume if it doesn't exist
+if ! docker volume ls | grep -q "aidra0-user-scripts"; then
+  echo "Creating docker volume: aidra0-user-scripts"
+  docker volume create aidra0-user-scripts
+else
+  echo "Docker volume aidra0-user-scripts already exists"
+fi
+echo "Using Docker image: $DOCKER_IMAGE"
+
+# Create and run docker container
+echo "Creating container: $CONTAINER_NAME"
+
+# Build mount arguments
+MOUNT_ARGS=()
+while IFS= read -r line; do
+  MOUNT_ARGS+=("$line")
+done < <(build_mount_args)
+
+# Build network arguments
+NETWORK_ARGS=()
+while IFS= read -r line; do
+  if [[ -n "$line" ]]; then
+    NETWORK_ARGS+=("$line")
+  fi
+done < <(build_network_args)
+
+# Build resource arguments
+RESOURCE_ARGS=()
+while IFS= read -r line; do
+  if [[ -n "$line" ]]; then
+    RESOURCE_ARGS+=("$line")
+  fi
+done < <(build_resource_args)
+
+# Build hostname arguments
+HOSTNAME_ARGS=()
+while IFS= read -r line; do
+  if [[ -n "$line" ]]; then
+    HOSTNAME_ARGS+=("$line")
+  fi
+done < <(build_hostname_args)
+
+# Build port arguments
+PORT_ARGS=()
+while IFS= read -r line; do
+  if [[ -n "$line" ]]; then
+    PORT_ARGS+=("$line")
+  fi
+done < <(build_port_args)
+
+# Display mount information
+echo "Mount configuration:"
+echo "  $(pwd) -> /app (rw)"
+echo "  aidra0-user-scripts -> /user-scripts (rw)"
+
+# Show custom mounts from config
+custom_mounts=$(get_config_value "custom_mounts" "[]")
+if [[ "$custom_mounts" != "[]" ]]; then
+  echo "Custom mounts from config:"
+  parse_custom_mounts "$custom_mounts" | while IFS=':' read -r host container mode; do
+    if [[ -n "$host" && -n "$container" ]]; then
+      echo "  $host -> $container ($mode)"
+    fi
+  done
+fi
+
+# Show CLI custom mounts
+if [[ ${#CLI_CUSTOM_MOUNTS[@]} -gt 0 ]]; then
+  echo "Custom mounts from CLI:"
+  for mount_spec in "${CLI_CUSTOM_MOUNTS[@]}"; do
+    host_path=$(echo "$mount_spec" | cut -d':' -f1)
+    container_path=$(echo "$mount_spec" | cut -d':' -f2)
+    mode=$(echo "$mount_spec" | cut -d':' -f3)
+    if [[ -z "$mode" ]]; then
+      mode="rw"
+    fi
+    echo "  $host_path -> $container_path ($mode)"
+  done
+fi
+
+# Show networks
+if [[ ${#CLI_NETWORKS[@]} -gt 0 ]]; then
+  echo "Networks:"
+  for network in "${CLI_NETWORKS[@]}"; do
+    echo "  $network"
+  done
+fi
+
+# Show port mappings
+if [[ ${#PORT_ARGS[@]} -gt 0 ]]; then
+  echo "Port mappings:"
+  i=0
+  while [[ $i -lt ${#PORT_ARGS[@]} ]]; do
+    if [[ "${PORT_ARGS[$i]}" == "-p" ]]; then
+      echo "  ${PORT_ARGS[$((i+1))]}"
+    fi
+    ((i+=2))
+  done
+fi
+
+# Show resource limits
+if [[ ${#RESOURCE_ARGS[@]} -gt 0 ]]; then
+  echo "Resource limits:"
+  i=0
+  while [[ $i -lt ${#RESOURCE_ARGS[@]} ]]; do
+    if [[ "${RESOURCE_ARGS[$i]}" == "--cpus" ]]; then
+      echo "  CPU limit: ${RESOURCE_ARGS[$((i+1))]}"
+    elif [[ "${RESOURCE_ARGS[$i]}" == "--memory" ]]; then
+      echo "  Memory limit: ${RESOURCE_ARGS[$((i+1))]}"
+    fi
+    ((i+=2))
+  done
+fi
+
+if [[ "$DEBUG_MODE" == "true" ]]; then
+  echo ""
+  echo "Debug: Docker command that would be executed:"
+  echo "docker run -d \\"
+  echo "  --name \"$CONTAINER_NAME\" \\"
+  for arg in "${HOSTNAME_ARGS[@]}"; do
+    echo "  \"$arg\" \\"
+  done
+  for arg in "${MOUNT_ARGS[@]}"; do
+    echo "  \"$arg\" \\"
+  done
+  for arg in "${NETWORK_ARGS[@]}"; do
+    echo "  \"$arg\" \\"
+  done
+  for arg in "${PORT_ARGS[@]}"; do
+    echo "  \"$arg\" \\"
+  done
+  for arg in "${RESOURCE_ARGS[@]}"; do
+    echo "  \"$arg\" \\"
+  done
+  echo "  \"$DOCKER_IMAGE\" \\"
+  echo "  sleep infinity"
+  echo ""
+  echo "Then execute: docker exec -it \"$CONTAINER_NAME\" <detected_shell>"
+else
+  # Run container in detached mode to persist even if user exits
+  # Use sleep infinity to keep container running
+  docker run -d \
+    --name "$CONTAINER_NAME" \
+    "${HOSTNAME_ARGS[@]}" \
+    "${MOUNT_ARGS[@]}" \
+    "${NETWORK_ARGS[@]}" \
+    "${PORT_ARGS[@]}" \
+    "${RESOURCE_ARGS[@]}" \
+    "$DOCKER_IMAGE" \
+    sleep infinity
+
+  # Check if container started successfully
+  if [ $? -eq 0 ]; then
+    echo "Container '$CONTAINER_NAME' started successfully."
+
+    # Detect default shell and exec into container
+    echo "Connecting to container..."
+    SHELL_CMD=$(docker exec "$CONTAINER_NAME" sh -c 'echo $SHELL' 2>/dev/null || echo "/bin/bash")
+    if [ -z "$SHELL_CMD" ] || ! docker exec "$CONTAINER_NAME" test -x "$SHELL_CMD" 2>/dev/null; then
+      SHELL_CMD="/bin/bash"
+    fi
+
+    # Execute interactive shell in the container
+    docker exec -it "$CONTAINER_NAME" "$SHELL_CMD"
+  else
+    echo "Failed to start container '$CONTAINER_NAME'"
+    exit 1
+  fi
+fi

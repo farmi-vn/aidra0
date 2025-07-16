@@ -1,0 +1,4 @@
+DRIVER    VOLUME NAME
+local     aidra0-home
+local     some-other-volume
+local     app-data
