@@ -2,7 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(grep:*)",
-      "Bash(./aidra0 --help)",
+      "Bash(aidra0 --help)",
       "Bash(find:*)",
       "Bash(./run-tests.sh)",
       "Bash(git commit:*)",
