@@ -30,14 +30,35 @@ Quick create container with auto mount working dir.
 
 ## Installation
 
-### Quick Install
+### Quick Install (Recommended)
+
+Install aidra0 with a single command:
+
+```bash
+curl https://github.com/farmi-vn/aidra0/raw/refs/heads/main/install.sh | bash
+```
+
+This will:
+- Download the latest version of aidra0
+- Install it to your local bin directory (no sudo required)
+- Automatically detect the best installation location in your PATH
+- Check for Docker and provide installation guidance if needed
+
+**Custom installation path:**
+```bash
+curl -s https://github.com/farmi-vn/aidra0/raw/refs/heads/main/install.sh | bash -s -- --path ~/my-tools
+```
+
+### Manual Installation
+
+If you prefer to install manually:
 
 1. Clone or download the script
 2. Make it executable: `chmod +x aidra0`
 3. Move it to where can found by `$PATH`
 4. Run: `aidra0 [container-name]`
 
-### Add to PATH (Recommended)
+### Add to PATH (Manual Setup)
 
 For easier access from anywhere:
 
