@@ -77,23 +77,23 @@ aidra0 --help
 
 ```bash
 # Create a container with current folder name using default alpine image
-./aidra0
+aidra0
 
 # Create a container with custom name
-./aidra0 my-project
+aidra0 my-project
 
 # Use a specific Docker image
-./aidra0 --image ubuntu:22.04 my-ubuntu-project
+aidra0 --image ubuntu:22.04 my-ubuntu-project
 
 # Set defaults to avoid typing options every time
-./aidra0 --config set default_image ubuntu:22.04
-./aidra0 my-project  # Now uses ubuntu:22.04 automatically
+aidra0 --config set default_image ubuntu:22.04
+aidra0 my-project  # Now uses ubuntu:22.04 automatically
 
 # List all your containers to see what's available
-./aidra0 --list
+aidra0 --list
 
 # Quickly reconnect to any existing container
-./aidra0 --attach my-project
+aidra0 --attach my-project
 ```
 
 ## Features
@@ -118,7 +118,7 @@ aidra0 --help
 
 ```bash
 # Show help
-./aidra0 --help
+aidra0 --help
 ```
 
 ```
@@ -178,49 +178,49 @@ Examples:
 
 ```bash
 # Use current folder name with default image (alpine or your configured default)
-./aidra0
+aidra0
 
 # Specify custom container name with default image
-./aidra0 my-app
+aidra0 my-app
 
 # Use specific Docker image (overrides default)
-./aidra0 --image ubuntu:22.04 my-app
+aidra0 --image ubuntu:22.04 my-app
 
 # Use Node.js image with current folder name
-./aidra0 --image node:18
+aidra0 --image node:18
 
 # Use Python image for data science work
-./aidra0 --image python:3.11-slim data-analysis
+aidra0 --image python:3.11-slim data-analysis
 
 # Mount additional directories for data access
-./aidra0 --mount /home/user/data:/app/data my-app
+aidra0 --mount /home/user/data:/app/data my-app
 
 # Mount configuration files as read-only
-./aidra0 --mount-ro /etc/myconfig:/app/config my-app
+aidra0 --mount-ro /etc/myconfig:/app/config my-app
 
 # Multiple custom mounts with different permissions
-./aidra0 --mount /home/user/data:/app/data:rw --mount-ro /home/user/config:/app/config my-app
+aidra0 --mount /home/user/data:/app/data:rw --mount-ro /home/user/config:/app/config my-app
 
 # Connect container to Docker network
-./aidra0 --network my-network my-app
+aidra0 --network my-network my-app
 
 # Connect to multiple networks
-./aidra0 --network frontend --network backend my-app
+aidra0 --network frontend --network backend my-app
 
 # Map ports for web development
-./aidra0 --port 3000:3000 --port 8080:80 web-app
+aidra0 --port 3000:3000 --port 8080:80 web-app
 
 # Map ports with specific protocols
-./aidra0 --port 8080:80:tcp --port 5432:5432:tcp database-app
+aidra0 --port 8080:80:tcp --port 5432:5432:tcp database-app
 
 # List all your containers with their status and directories
-./aidra0 --list
+aidra0 --list
 
 # Attach to an existing container (starts if stopped)
-./aidra0 --attach my-app
+aidra0 --attach my-app
 
 # View scripts volume content
-./aidra0 view-scripts
+aidra0 view-scripts
 ```
 
 ## IDE Integration
@@ -238,10 +238,10 @@ Container Here provides seamless integration with popular IDEs, allowing you to 
 
 ```bash
 # Open VSCode connected to container
-./aidra0 --vscode my-app
+aidra0 --vscode my-app
 
 # Auto-detect container name from current directory
-./aidra0 --vscode
+aidra0 --vscode
 ```
 
 VSCode will open with the container attached using the Dev Containers extension. The editor will have full access to the container's filesystem and can run commands inside the container.
@@ -255,10 +255,10 @@ VSCode will open with the container attached using the Dev Containers extension.
 
 ```bash
 # Open Cursor connected to container
-./aidra0 --cursor my-app
+aidra0 --cursor my-app
 
 # Auto-detect container name
-./aidra0 --cursor
+aidra0 --cursor
 ```
 
 Cursor uses the same Dev Containers protocol as VSCode, providing full container integration.
@@ -274,22 +274,22 @@ Cursor uses the same Dev Containers protocol as VSCode, providing full container
 
 ```bash
 # Create frontend container and open in VSCode
-./aidra0 --image node:18 frontend
-./aidra0 --vscode frontend
+aidra0 --image node:18 frontend
+aidra0 --vscode frontend
 
 # Create backend container and open in another VSCode window
-./aidra0 --image python:3.11 backend
-./aidra0 --vscode backend
+aidra0 --image python:3.11 backend
+aidra0 --vscode backend
 ```
 
 #### PHP Development with PHPStorm
 
 ```bash
 # Create PHP development container
-./aidra0 --image php:8.2-cli --port 8080:80 php-app
+aidra0 --image php:8.2-cli --port 8080:80 php-app
 
 # Open PHPStorm connected to the container
-./aidra0 --phpstorm php-app
+aidra0 --phpstorm php-app
 
 # PHPStorm opens with instructions to:
 # 1. Configure Docker as remote interpreter
@@ -301,10 +301,10 @@ Cursor uses the same Dev Containers protocol as VSCode, providing full container
 
 ```bash
 # Start with VSCode
-./aidra0 --vscode my-project
+aidra0 --vscode my-project
 
 # Later, switch to Cursor for AI assistance
-./aidra0 --cursor my-project
+aidra0 --cursor my-project
 ```
 
 ### Technical Details
@@ -383,7 +383,7 @@ The script automatically validates Docker images through the following process:
 ### Example Image Validation Flow
 
 ```bash
-$ ./aidra0 --image python:3.11
+$ aidra0 --image python:3.11
 
 Checking Docker image: python:3.11
 Image 'python:3.11' not found locally, checking Docker Hub...
@@ -410,7 +410,7 @@ Pulling image 'python:3.11'...
 #### List All Containers
 
 ```bash
-./aidra0 --list
+aidra0 --list
 ```
 
 Example output:
@@ -431,10 +431,10 @@ To create a new container: aidra0 [name]
 
 ```bash
 # Attach to a running container
-./aidra0 --attach my-project
+aidra0 --attach my-project
 
 # Attach to a stopped container (automatically starts it)
-./aidra0 --attach data-analysis
+aidra0 --attach data-analysis
 ```
 
 ### Existing Container Behavior
@@ -461,7 +461,7 @@ Container Here supports multi-level configuration with clear precedence rules, a
 
 ```bash
 # Show configuration help
-./aidra0 --config
+aidra0 --config
 ```
 
 ```
@@ -503,24 +503,24 @@ Examples:
 
 ```bash
 # Set local project config (default behavior like git)
-./aidra0 --config set default_image node:18
+aidra0 --config set default_image node:18
 
 # Set global/user config (requires --global flag)
-./aidra0 --config set --global default_image ubuntu:22.04
+aidra0 --config set --global default_image ubuntu:22.04
 
 # Get current value (from any source)
-./aidra0 --config get default_image
+aidra0 --config get default_image
 
 # Check which config source provides a value
-./aidra0 --config which default_image
+aidra0 --config which default_image
 # Output: default_image = node:18
 #         Source: local (/path/to/project/.aidra0.conf)
 
 # List all configuration sources
-./aidra0 --config sources
+aidra0 --config sources
 
 # List all configuration values with their sources
-./aidra0 --config list
+aidra0 --config list
 ```
 
 ### Environment Variables
@@ -529,10 +529,10 @@ Override any configuration value using environment variables:
 
 ```bash
 # Override default image
-AIDRA0__DEFAULT_IMAGE=python:3.11 ./aidra0 my-app
+AIDRA0__DEFAULT_IMAGE=python:3.11 aidra0 my-app
 
 # Override custom mounts
-AIDRA0__CUSTOM_MOUNTS='[{"host":"/tmp","container":"/tmp","mode":"rw"}]' ./aidra0
+AIDRA0__CUSTOM_MOUNTS='[{"host":"/tmp","container":"/tmp","mode":"rw"}]' aidra0
 ```
 
 ### Local Project Configuration
@@ -584,28 +584,28 @@ custom_mounts=[{"host":"/home/user/data","container":"/app/data","mode":"rw"},{"
 
 ```bash
 # 1. Set global/user-wide defaults
-./aidra0 --config set --global default_image ubuntu:22.04
-./aidra0 --config set --global custom_mounts '[{"host":"/home/user/data","container":"/data","mode":"rw"}]'
+aidra0 --config set --global default_image ubuntu:22.04
+aidra0 --config set --global custom_mounts '[{"host":"/home/user/data","container":"/data","mode":"rw"}]'
 
 # 2. Set project-specific overrides (default behavior)
 cd /path/to/nodejs-project
-./aidra0 --config set default_image node:18-alpine
-./aidra0 --config set custom_mounts '[{"host":"./src","container":"/app/src","mode":"rw"}]'
+aidra0 --config set default_image node:18-alpine
+aidra0 --config set custom_mounts '[{"host":"./src","container":"/app/src","mode":"rw"}]'
 
 # 3. Check which configuration is active
-./aidra0 --config which default_image
+aidra0 --config which default_image
 # Output: default_image = node:18-alpine
 #         Source: local (/path/to/nodejs-project/.aidra0.conf)
 
 # 4. List all configurations with sources
-./aidra0 --config list
+aidra0 --config list
 # Output shows both local and global configs with source indicators
 
 # 5. Override with environment variable for one-off use
-AIDRA0__DEFAULT_IMAGE=python:3.11 ./aidra0 test-python
+AIDRA0__DEFAULT_IMAGE=python:3.11 aidra0 test-python
 
 # 6. View configuration hierarchy
-./aidra0 --config sources
+aidra0 --config sources
 ```
 
 #### Team Collaboration Example
@@ -621,7 +621,7 @@ git commit -m "Add container configuration for team"
 
 # Team members automatically get the same environment
 git pull
-./aidra0 dev-env    # Uses project-specific configuration
+aidra0 dev-env    # Uses project-specific configuration
 ```
 
 ## Resource Management
@@ -634,16 +634,16 @@ Container Here supports CPU and memory resource limits to control container reso
 
 ```bash
 # Limit CPU usage to 2 cores
-./aidra0 --cpu 2 my-app
+aidra0 --cpu 2 my-app
 
 # Limit memory to 1GB
-./aidra0 --memory 1g my-app
+aidra0 --memory 1g my-app
 
 # Combine CPU and memory limits
-./aidra0 --cpu 1.5 --memory 512m my-app
+aidra0 --cpu 1.5 --memory 512m my-app
 
 # Use fractional CPU limits
-./aidra0 --cpu 0.5 my-app  # Half CPU core
+aidra0 --cpu 0.5 my-app  # Half CPU core
 ```
 
 #### Configuration-Based Resource Limits
@@ -652,25 +652,25 @@ Set persistent resource limits using the configuration system:
 
 ```bash
 # Set default CPU limit for all containers
-./aidra0 --config set cpu_limit 2.0
+aidra0 --config set cpu_limit 2.0
 
 # Set default memory limit for all containers
-./aidra0 --config set memory_limit 1g
+aidra0 --config set memory_limit 1g
 
 # Set global defaults
-./aidra0 --config set --global cpu_limit 1.5
-./aidra0 --config set --global memory_limit 2g
+aidra0 --config set --global cpu_limit 1.5
+aidra0 --config set --global memory_limit 2g
 
 # View current resource configuration
-./aidra0 --config list
+aidra0 --config list
 ```
 
 #### Environment Variable Overrides
 
 ```bash
 # Override resource limits with environment variables
-AIDRA0__CPU_LIMIT=3 ./aidra0 my-app
-AIDRA0__MEMORY_LIMIT=2g ./aidra0 my-app
+AIDRA0__CPU_LIMIT=3 aidra0 my-app
+AIDRA0__MEMORY_LIMIT=2g aidra0 my-app
 ```
 
 ### Resource Limit Formats
@@ -704,16 +704,16 @@ Resource limits follow the same configuration hierarchy as other settings:
 
 ```bash
 # Set up a resource-constrained development environment
-./aidra0 --config set cpu_limit 1.5
-./aidra0 --config set memory_limit 1g
-./aidra0 --config set default_image node:18
+aidra0 --config set cpu_limit 1.5
+aidra0 --config set memory_limit 1g
+aidra0 --config set default_image node:18
 
 # All containers will now use these resource limits
-./aidra0 frontend-app    # Uses 1.5 CPU, 1GB memory
-./aidra0 backend-api     # Uses 1.5 CPU, 1GB memory
+aidra0 frontend-app    # Uses 1.5 CPU, 1GB memory
+aidra0 backend-api     # Uses 1.5 CPU, 1GB memory
 
 # Override for specific containers
-./aidra0 --cpu 2 --memory 2g build-server
+aidra0 --cpu 2 --memory 2g build-server
 ```
 
 #### Team Configuration for Consistent Resource Usage
@@ -730,7 +730,7 @@ git commit -m "Add resource limits for consistent development environment"
 
 # Team members get consistent resource usage
 git pull
-./aidra0 dev-env  # Automatically applies CPU and memory limits
+aidra0 dev-env  # Automatically applies CPU and memory limits
 ```
 
 ## Port Mapping
@@ -743,16 +743,16 @@ Container Here supports comprehensive port mapping to expose container services 
 
 ```bash
 # Map single port (TCP is default)
-./aidra0 --port 8080:80 web-app
+aidra0 --port 8080:80 web-app
 
 # Map multiple ports
-./aidra0 --port 8080:80 --port 3000:3000 web-app
+aidra0 --port 8080:80 --port 3000:3000 web-app
 
 # Specify protocols explicitly
-./aidra0 --port 8080:80:tcp --port 9090:9090:udp app
+aidra0 --port 8080:80:tcp --port 9090:9090:udp app
 
 # Database port mapping
-./aidra0 --port 5432:5432 database-container
+aidra0 --port 5432:5432 database-container
 ```
 
 #### Configuration-Based Port Mapping
@@ -761,26 +761,26 @@ Set persistent port mappings using the configuration system:
 
 ```bash
 # Simple format (recommended)
-./aidra0 --config set port_mappings '8080:80 3000:3000'
+aidra0 --config set port_mappings '8080:80 3000:3000'
 
 # Multiple ports with different protocols
-./aidra0 --config set port_mappings '8080:80:tcp 9090:9090:udp'
+aidra0 --config set port_mappings '8080:80:tcp 9090:9090:udp'
 
 # JSON format (for complex scenarios)
-./aidra0 --config set port_mappings '[
+aidra0 --config set port_mappings '[
   {"host":"8080","container":"80","protocol":"tcp"},
   {"host":"9090","container":"9090","protocol":"udp"}
 ]'
 
 # View current port configuration
-./aidra0 --config list
+aidra0 --config list
 ```
 
 #### Environment Variable Overrides
 
 ```bash
 # Override port mappings with environment variables
-AIDRA0__PORT_MAPPINGS='3000:3000 8080:80' ./aidra0 my-app
+AIDRA0__PORT_MAPPINGS='3000:3000 8080:80' aidra0 my-app
 ```
 
 ### Port Mapping Formats
@@ -810,41 +810,41 @@ AIDRA0__PORT_MAPPINGS='3000:3000 8080:80' ./aidra0 my-app
 
 ```bash
 # Frontend and backend development
-./aidra0 --config set port_mappings '3000:3000 8080:80 5432:5432'
-./aidra0 --config set default_image node:18
+aidra0 --config set port_mappings '3000:3000 8080:80 5432:5432'
+aidra0 --config set default_image node:18
 
 # All web containers get these ports
-./aidra0 frontend-app     # Ports 3000, 8080, 5432 mapped
-./aidra0 backend-api      # Same ports automatically mapped
+aidra0 frontend-app     # Ports 3000, 8080, 5432 mapped
+aidra0 backend-api      # Same ports automatically mapped
 
 # Override for specific containers
-./aidra0 --port 9000:9000 special-service
+aidra0 --port 9000:9000 special-service
 ```
 
 #### Database Services
 
 ```bash
 # PostgreSQL container
-./aidra0 --port 5432:5432 --image postgres:15 database
+aidra0 --port 5432:5432 --image postgres:15 database
 
 # Redis container with different host port
-./aidra0 --port 6380:6379 --image redis:alpine cache
+aidra0 --port 6380:6379 --image redis:alpine cache
 
 # Multiple database instances
-./aidra0 --port 5433:5432 postgres-test
-./aidra0 --port 5434:5432 postgres-staging
+aidra0 --port 5433:5432 postgres-test
+aidra0 --port 5434:5432 postgres-staging
 ```
 
 #### Microservices Architecture
 
 ```bash
 # Set up port mappings for microservices
-./aidra0 --config set port_mappings '8001:8000 8002:8000 8003:8000'
+aidra0 --config set port_mappings '8001:8000 8002:8000 8003:8000'
 
 # Each service gets its own port
-./aidra0 --port 8001:8000 user-service
-./aidra0 --port 8002:8000 order-service
-./aidra0 --port 8003:8000 payment-service
+aidra0 --port 8001:8000 user-service
+aidra0 --port 8002:8000 order-service
+aidra0 --port 8003:8000 payment-service
 ```
 
 ### Configuration Hierarchy
@@ -870,7 +870,7 @@ git commit -m "Add port mapping configuration for team"
 
 # Team members get consistent port mappings
 git pull
-./aidra0 dev-env  # Automatically maps ports 3000 and 8080
+aidra0 dev-env  # Automatically maps ports 3000 and 8080
 ```
 
 ## Volume Mounting
@@ -886,26 +886,26 @@ git pull
 
 ```bash
 # Mount directory with read-write access
-./aidra0 --mount /host/data:/container/data my-app
+aidra0 --mount /host/data:/container/data my-app
 
 # Mount directory as read-only
-./aidra0 --mount-ro /host/configs:/container/configs my-app
+aidra0 --mount-ro /host/configs:/container/configs my-app
 
 # Multiple mounts with mixed permissions
-./aidra0 --mount /data:/app/data:rw --mount-ro /configs:/app/config my-app
+aidra0 --mount /data:/app/data:rw --mount-ro /configs:/app/config my-app
 ```
 
 #### Configuration-Based Mounts
 
 ```bash
 # Set persistent custom mounts
-./aidra0 --config set custom_mounts '[
+aidra0 --config set custom_mounts '[
   {"host":"/home/user/projects","container":"/workspace","mode":"rw"},
   {"host":"/etc/ssl/certs","container":"/app/certs","mode":"ro"}
 ]'
 
 # All future containers will use these mounts automatically
-./aidra0 my-project
+aidra0 my-project
 ```
 
 #### Mount Validation
@@ -964,8 +964,8 @@ tests/
 
 ```bash
 # Start with default alpine image
-./aidra0                    # Creates aidra0-<current-folder>
-./aidra0 my-tools           # Creates aidra0-my-tools
+aidra0                    # Creates aidra0-<current-folder>
+aidra0 my-tools           # Creates aidra0-my-tools
 ```
 
 ### Development Workflows
@@ -974,72 +974,72 @@ tests/
 
 ```bash
 # Set Node.js as your default for web projects
-./aidra0 --config set default_image node:18-alpine
+aidra0 --config set default_image node:18-alpine
 
 # Set up common web development ports
-./aidra0 --config set port_mappings '3000:3000 8080:80 9000:9000'
+aidra0 --config set port_mappings '3000:3000 8080:80 9000:9000'
 
 # Now create containers for different projects
-./aidra0 frontend-app       # Uses node:18-alpine with ports mapped
-./aidra0 api-server         # Uses node:18-alpine with ports mapped
-./aidra0 --image nginx web-proxy  # Override for specific needs
+aidra0 frontend-app       # Uses node:18-alpine with ports mapped
+aidra0 api-server         # Uses node:18-alpine with ports mapped
+aidra0 --image nginx web-proxy  # Override for specific needs
 
 # Create containers with specific port mappings
-./aidra0 --port 3001:3000 --port 8081:80 frontend-alt
+aidra0 --port 3001:3000 --port 8081:80 frontend-alt
 ```
 
 #### Data Science Workflow
 
 ```bash
 # Set Python as default for data work
-./aidra0 --config set default_image python:3.11-slim
+aidra0 --config set default_image python:3.11-slim
 
 # Set up persistent mounts for data and notebooks
-./aidra0 --config set custom_mounts '[
+aidra0 --config set custom_mounts '[
   {"host":"/home/user/datasets","container":"/data","mode":"ro"},
   {"host":"/home/user/notebooks","container":"/notebooks","mode":"rw"}
 ]'
 
 # Create containers for different analyses
-./aidra0 data-analysis      # Uses python:3.11-slim with data mounts
-./aidra0 ml-experiments     # Uses python:3.11-slim with data mounts
+aidra0 data-analysis      # Uses python:3.11-slim with data mounts
+aidra0 ml-experiments     # Uses python:3.11-slim with data mounts
 
 # Override with specific mounts for special projects
-./aidra0 --mount /home/user/large-dataset:/data:ro --image jupyter/scipy-notebook research
+aidra0 --mount /home/user/large-dataset:/data:ro --image jupyter/scipy-notebook research
 ```
 
 #### DevOps and System Administration
 
 ```bash
 # Set Ubuntu as default for system work
-./aidra0 --config set default_image ubuntu:22.04
+aidra0 --config set default_image ubuntu:22.04
 
 # Mount common configuration directories
-./aidra0 --mount-ro /etc/ssl:/etc/ssl --mount /var/log:/logs server-config
+aidra0 --mount-ro /etc/ssl:/etc/ssl --mount /var/log:/logs server-config
 
 # Quick debugging with minimal tools
-./aidra0 --image alpine:latest --mount-ro /etc/hosts:/etc/hosts minimal-debug
+aidra0 --image alpine:latest --mount-ro /etc/hosts:/etc/hosts minimal-debug
 
 # Container with access to Docker socket (for Docker-in-Docker workflows)
-./aidra0 --mount /var/run/docker.sock:/var/run/docker.sock:rw docker-tools
+aidra0 --mount /var/run/docker.sock:/var/run/docker.sock:rw docker-tools
 ```
 
 ### Multi-Language Development
 
 ```bash
 # Switch defaults as needed
-./aidra0 --config set default_image python:3.11
-./aidra0 python-api
+aidra0 --config set default_image python:3.11
+aidra0 python-api
 
-./aidra0 --config set default_image node:18
-./aidra0 react-frontend
+aidra0 --config set default_image node:18
+aidra0 react-frontend
 
-./aidra0 --config set default_image golang:1.21
-./aidra0 go-microservice
+aidra0 --config set default_image golang:1.21
+aidra0 go-microservice
 
 # Or override without changing defaults
-./aidra0 --image rust:1.75 rust-project
-./aidra0 --image openjdk:17 java-app
+aidra0 --image rust:1.75 rust-project
+aidra0 --image openjdk:17 java-app
 ```
 
 ### Persistent Workflow Examples
@@ -1048,17 +1048,17 @@ tests/
 
 ```bash
 # Monday: Start new project
-./aidra0 --image node:18 new-app
+aidra0 --image node:18 new-app
 # Install dependencies, write code, exit accidentally...
 
 # Tuesday: Continue where you left off
-./aidra0 --list
+aidra0 --list
 # Shows: new-app | Exited (0) 16 hours ago | /Users/you/projects/new-app
-./aidra0 --attach new-app
+aidra0 --attach new-app
 # Back to your environment with all packages still installed!
 
 # Wednesday: Check all active projects
-./aidra0 --list
+aidra0 --list
 # Shows all containers with their directories and status
 ```
 
@@ -1066,15 +1066,15 @@ tests/
 
 ```bash
 # Work on frontend (React)
-./aidra0 --attach frontend-app
+aidra0 --attach frontend-app
 # Work for a while, then switch to backend
 
 # Switch to backend API (Python)
-./aidra0 --attach api-server
+aidra0 --attach api-server
 # Both environments stay ready with all your work preserved
 
 # Quick status check
-./aidra0 --list
+aidra0 --list
 # See which projects are running vs stopped
 ```
 
@@ -1082,11 +1082,11 @@ tests/
 
 ```bash
 # Start development environment
-./aidra0 --image ubuntu:22.04 dev-environment
+aidra0 --image ubuntu:22.04 dev-environment
 # Install tools, configure environment, set up dotfiles...
 
 # Weeks later, instantly return to configured environment
-./aidra0 --attach dev-environment
+aidra0 --attach dev-environment
 # Everything exactly as you left it - no setup needed!
 ```
 
@@ -1094,14 +1094,14 @@ tests/
 
 ```bash
 # Using specialized images with port mappings (will prompt to pull if not local)
-./aidra0 --port 5432:5432 --image postgres:15 database-work
-./aidra0 --port 6379:6379 --image redis:alpine cache-testing
-./aidra0 --port 27017:27017 --image mongo:6 document-db
-./aidra0 --port 80:80 --port 443:443 --image nginx:alpine web-server
+aidra0 --port 5432:5432 --image postgres:15 database-work
+aidra0 --port 6379:6379 --image redis:alpine cache-testing
+aidra0 --port 27017:27017 --image mongo:6 document-db
+aidra0 --port 80:80 --port 443:443 --image nginx:alpine web-server
 
 # Multiple database instances with different host ports
-./aidra0 --port 5433:5432 --image postgres:15 postgres-test
-./aidra0 --port 5434:5432 --image postgres:15 postgres-prod
+aidra0 --port 5433:5432 --image postgres:15 postgres-test
+aidra0 --port 5434:5432 --image postgres:15 postgres-prod
 ```
 
 ## Custom Mount Path Examples
@@ -1110,7 +1110,7 @@ tests/
 
 ```bash
 # Mount source code, build artifacts, and configuration
-./aidra0 \
+aidra0 \
   --mount /home/user/projects:/workspace:rw \
   --mount-ro /home/user/.gitconfig:/root/.gitconfig \
   --mount /home/user/.ssh:/root/.ssh:ro \
@@ -1121,7 +1121,7 @@ tests/
 
 ```bash
 # Mount database data directory and config files
-./aidra0 \
+aidra0 \
   --mount /var/lib/mysql:/var/lib/mysql:rw \
   --mount-ro /etc/mysql/my.cnf:/etc/mysql/my.cnf \
   --image mysql:8.0 database
@@ -1131,7 +1131,7 @@ tests/
 
 ```bash
 # Mount web content as read-only, logs as read-write
-./aidra0 \
+aidra0 \
   --mount-ro /home/user/website:/var/www/html \
   --mount /var/log/nginx:/var/log/nginx:rw \
   --image nginx:alpine web-server
@@ -1141,7 +1141,7 @@ tests/
 
 ```bash
 # Mount input data as read-only, output directory as read-write
-./aidra0 \
+aidra0 \
   --mount-ro /data/input:/app/input \
   --mount /data/output:/app/output:rw \
   --mount-ro /config/pipeline.yaml:/app/config.yaml \
@@ -1152,7 +1152,7 @@ tests/
 
 ```bash
 # Set up a development environment with persistent mounts
-./aidra0 --config set custom_mounts '[
+aidra0 --config set custom_mounts '[
   {"host":"/home/user/projects","container":"/workspace","mode":"rw"},
   {"host":"/home/user/.gitconfig","container":"/root/.gitconfig","mode":"ro"},
   {"host":"/home/user/.ssh","container":"/root/.ssh","mode":"ro"},
@@ -1160,8 +1160,8 @@ tests/
 ]'
 
 # Now all containers automatically get these mounts
-./aidra0 my-project      # Automatically includes all configured mounts
-./aidra0 another-project # Same persistent mounts applied
+aidra0 my-project      # Automatically includes all configured mounts
+aidra0 another-project # Same persistent mounts applied
 ```
 
 ## Error Handling
