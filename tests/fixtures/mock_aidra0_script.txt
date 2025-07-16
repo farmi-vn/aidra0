@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Mock aidra0 script for testing
+SCRIPT_VERSION="1.0.3"
+GITHUB_REPO="farmi-vn/aidra0"
+
+show_version() {
+    echo "aidra0 version $SCRIPT_VERSION"
+    echo "GitHub repository: https://github.com/$GITHUB_REPO"
+}
+
+case "$1" in
+    --version)
+        show_version
+        exit 0
+        ;;
+    --help)
+        echo "Usage: aidra0 [OPTIONS] [CONTAINER_NAME]"
+        echo "Mock aidra0 script for testing"
+        exit 0
+        ;;
+    *)
+        echo "Mock aidra0 container tool"
+        echo "This is a test version"
+        ;;
+esac
