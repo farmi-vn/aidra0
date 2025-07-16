@@ -35,7 +35,7 @@ Quick create container with auto mount working dir.
 Install aidra0 with a single command:
 
 ```bash
-curl https://github.com/farmi-vn/aidra0/raw/refs/heads/main/install.sh | bash
+curl -s https://raw.githubusercontent.com/farmi-vn/aidra0/refs/heads/main/install.sh | bash
 ```
 
 This will:
@@ -46,7 +46,7 @@ This will:
 
 **Custom installation path:**
 ```bash
-curl -s https://github.com/farmi-vn/aidra0/raw/refs/heads/main/install.sh | bash -s -- --path ~/my-tools
+curl -s https://raw.githubusercontent.com/farmi-vn/aidra0/refs/heads/main/install.sh | bash -s -- --path ~/my-tools
 ```
 
 ### Manual Installation

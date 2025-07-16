@@ -297,6 +297,16 @@ main() {
     if [[ -f "$INSTALL_DIR/$SCRIPT_NAME" ]]; then
         echo
         print_warning "aidra0 is already installed at $INSTALL_DIR/$SCRIPT_NAME"
+        
+        # Try to get current version
+        local current_version=""
+        if current_version=$("$INSTALL_DIR/$SCRIPT_NAME" --version 2>/dev/null | head -n1) && [[ -n "$current_version" ]]; then
+            print_info "Current version: $current_version"
+        else
+            print_info "Current version: Unable to determine"
+        fi
+        
+        echo
         while true; do
             read -p "Overwrite existing installation? (y/N): " -r response
             case "$response" in

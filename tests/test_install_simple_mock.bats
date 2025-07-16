@@ -73,3 +73,47 @@ teardown() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"Unknown option"* ]]
 }
+
+@test "install script detects existing installation and shows version" {
+    # Create a temporary test directory and mock script
+    local test_dir="$BATS_TMPDIR/test_install"
+    mkdir -p "$test_dir"
+    
+    # Create a mock aidra0 script that responds to --version
+    cat > "$test_dir/aidra0" << 'EOF'
+#!/bin/bash
+if [[ "$1" == "--version" ]]; then
+    echo "aidra0 version 1.0.0"
+    exit 0
+fi
+EOF
+    chmod +x "$test_dir/aidra0"
+    
+    # Test that the install script detects existing installation
+    # Using echo "n" to automatically decline overwrite
+    run bash -c "echo 'n' | bash '$BATS_TEST_DIRNAME/../install.sh' --path '$test_dir'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"aidra0 is already installed"* ]]
+    [[ "$output" == *"Current version: aidra0 version 1.0.0"* ]]
+    [[ "$output" == *"Installation cancelled"* ]]
+}
+
+@test "install script handles version detection failure gracefully" {
+    # Create a temporary test directory and broken mock script
+    local test_dir="$BATS_TMPDIR/test_install_broken"
+    mkdir -p "$test_dir"
+    
+    # Create a mock aidra0 script that doesn't respond to --version properly
+    cat > "$test_dir/aidra0" << 'EOF'
+#!/bin/bash
+exit 1
+EOF
+    chmod +x "$test_dir/aidra0"
+    
+    # Test that the install script handles version detection failure
+    run bash -c "echo 'n' | bash '$BATS_TEST_DIRNAME/../install.sh' --path '$test_dir'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"aidra0 is already installed"* ]]
+    [[ "$output" == *"Current version: Unable to determine"* ]]
+    [[ "$output" == *"Installation cancelled"* ]]
+}
