@@ -64,11 +64,11 @@ teardown() {
 @test "get_env_config_value handles uppercase conversion" {
     source "$BATS_TEST_DIRNAME/../aidra0"
 
-    export AIDRA0_CUSTOM_MOUNTS='[{"host":"/tmp","container":"/tmp","mode":"rw"}]'
+    export AIDRA0_CUSTOM_MOUNTS='/tmp:/tmp:rw'
 
     run get_env_config_value "custom_mounts"
     [ "$status" -eq 0 ]
-    [ "$output" = '[{"host":"/tmp","container":"/tmp","mode":"rw"}]' ]
+    [ "$output" = '/tmp:/tmp:rw' ]
 }
 
 # Test multi-level configuration precedence
@@ -194,13 +194,13 @@ teardown() {
 }
 
 # Test complex custom_mounts configuration
-@test "multi-level config handles custom_mounts JSON correctly" {
+@test "multi-level config handles custom_mounts Docker syntax correctly" {
     source "$BATS_TEST_DIRNAME/../aidra0"
 
-    local mounts='[{"host":"/data","container":"/app/data","mode":"rw"}]'
+    local mounts='/data:/app/data:rw'
     export AIDRA0_CUSTOM_MOUNTS="$mounts"
 
-    run get_config_value_multi "custom_mounts" "[]"
+    run get_config_value_multi "custom_mounts" ""
     [ "$status" -eq 0 ]
     [ "$output" = "$mounts" ]
 }
@@ -246,4 +246,23 @@ teardown() {
     # Check global file was created
     [ -f "$CONFIG_FILE" ]
     grep -q "^default_image=global-image$" "$CONFIG_FILE"
+}
+
+# Test new mount configuration format works with existing functions
+@test "config handles Docker-like mount syntax" {
+    source "$BATS_TEST_DIRNAME/../aidra0"
+
+    # Test setting Docker syntax in config
+    echo "custom_mounts=/host:/app,myvolume:/data:ro" > "$TEST_PROJECT/.aidra0.conf"
+    
+    run get_config_value "custom_mounts" ""
+    [ "$status" -eq 0 ]
+    [ "$output" = "/host:/app,myvolume:/data:ro" ]
+}
+
+@test "validate_custom_mounts rejects empty container paths" {
+    source "$BATS_TEST_DIRNAME/../aidra0"
+
+    run validate_custom_mounts "/host:,myvolume:/data"
+    [ "$status" -eq 1 ]
 }
