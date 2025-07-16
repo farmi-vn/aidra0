@@ -44,21 +44,21 @@ set_config_value_in_file() {
 set_config_value() {
   local key="$1"
   local value="$2"
-  local target="${3:-local}"  # Default to local config (git-like behavior)
+  local target="${3:-local}" # Default to local config (git-like behavior)
 
   case "$target" in
-    "local")
-      local local_config="$PWD/$LOCAL_CONFIG_FILE"
-      set_config_value_in_file "$local_config" "$key" "$value"
-      ;;
-    "global")
-      ensure_config_dir
-      set_config_value_in_file "$CONFIG_FILE" "$key" "$value"
-      ;;
-    *)
-      echo "Error: Invalid config target. Use 'local' or 'global'" >&2
-      return 1
-      ;;
+  "local")
+    local local_config="$PWD/$LOCAL_CONFIG_FILE"
+    set_config_value_in_file "$local_config" "$key" "$value"
+    ;;
+  "global")
+    ensure_config_dir
+    set_config_value_in_file "$CONFIG_FILE" "$key" "$value"
+    ;;
+  *)
+    echo "Error: Invalid config target. Use 'local' or 'global'" >&2
+    return 1
+    ;;
   esac
 }
 
@@ -199,8 +199,8 @@ compare_versions() {
   fi
 
   # Split versions into arrays
-  IFS='.' read -ra v1_parts <<< "$v1"
-  IFS='.' read -ra v2_parts <<< "$v2"
+  IFS='.' read -ra v1_parts <<<"$v1"
+  IFS='.' read -ra v2_parts <<<"$v2"
 
   # Pad arrays to same length
   local max_len=${#v1_parts[@]}
@@ -209,7 +209,7 @@ compare_versions() {
   fi
 
   # Compare each part
-  for ((i=0; i<max_len; i++)); do
+  for ((i = 0; i < max_len; i++)); do
     local part1=${v1_parts[i]:-0}
     local part2=${v2_parts[i]:-0}
 
@@ -218,13 +218,13 @@ compare_versions() {
     part2=$((10#$part2))
 
     if [[ $part1 -gt $part2 ]]; then
-      return 1  # v1 > v2
+      return 1 # v1 > v2
     elif [[ $part1 -lt $part2 ]]; then
-      return 2  # v1 < v2
+      return 2 # v1 < v2
     fi
   done
 
-  return 0  # v1 == v2
+  return 0 # v1 == v2
 }
 
 # Function to check if update is available
@@ -253,7 +253,7 @@ check_for_updates() {
   if [[ $? -eq 0 && -n "$remote_version" ]]; then
     # Update last check time
     ensure_config_dir
-    echo "$current_time" > "$last_check_file"
+    echo "$current_time" >"$last_check_file"
 
     # Compare versions using semantic version comparison
     compare_versions "$SCRIPT_VERSION" "$remote_version"
@@ -368,7 +368,7 @@ upgrade_script() {
 
     # Update last check time to avoid immediate re-check
     ensure_config_dir
-    echo "$(date +%s)" > "$CONFIG_DIR/last_update_check"
+    echo "$(date +%s)" >"$CONFIG_DIR/last_update_check"
   else
     echo "⚠ Installation may not have completed successfully."
     echo "You can restore from backup: $backup_file"
@@ -393,8 +393,6 @@ list_config_sources() {
   echo "4. Global/User config: $CONFIG_FILE"
   echo "5. Built-in defaults"
 }
-
-
 
 # Function to parse custom mounts from config
 parse_custom_mounts() {
@@ -449,7 +447,7 @@ validate_custom_mounts() {
 
   # Parse and validate each mount
   local temp_file=$(mktemp)
-  parse_custom_mounts "$mounts_config" > "$temp_file" 2>&1
+  parse_custom_mounts "$mounts_config" >"$temp_file" 2>&1
 
   if grep -q "Error:" "$temp_file"; then
     cat "$temp_file" >&2
@@ -462,7 +460,7 @@ validate_custom_mounts() {
     if [[ -n "$host" && ! -e "$host" ]]; then
       echo "Warning: Host path does not exist: $host" >&2
     fi
-  done < "$temp_file"
+  done <"$temp_file"
 
   rm "$temp_file"
   return 0
@@ -505,7 +503,7 @@ validate_port_format() {
   local port_mapping="$1"
 
   # Split the mapping into components
-  IFS=':' read -r host_port container_port protocol <<< "$port_mapping"
+  IFS=':' read -r host_port container_port protocol <<<"$port_mapping"
 
   # Check if we have at least host and container ports
   if [[ -z "$host_port" || -z "$container_port" ]]; then
@@ -546,7 +544,7 @@ parse_port_mappings() {
     local entries=$(echo "$port_mappings_config" | sed 's/^\[//; s/\]$//' | sed 's/},{/}|{/g')
 
     # Process each entry
-    IFS='|' read -ra port_entries <<< "$entries"
+    IFS='|' read -ra port_entries <<<"$entries"
     for entry in "${port_entries[@]}"; do
       # Extract host, container, and protocol using sed
       local host=$(echo "$entry" | sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
@@ -568,7 +566,7 @@ parse_port_mappings() {
     done
   else
     # Simple format: "8080:80 9090:90:udp"
-    read -ra port_entries <<< "$port_mappings_config"
+    read -ra port_entries <<<"$port_mappings_config"
     for entry in "${port_entries[@]}"; do
       # Skip empty entries
       if [[ -z "$entry" ]]; then
@@ -576,7 +574,7 @@ parse_port_mappings() {
       fi
 
       # Parse host:container[:protocol]
-      IFS=':' read -r host container protocol <<< "$entry"
+      IFS=':' read -r host container protocol <<<"$entry"
 
       # Default protocol to tcp if not specified
       if [[ -z "$protocol" ]]; then
@@ -612,7 +610,7 @@ validate_port_mappings() {
 
   # Parse and validate each port mapping
   local temp_file=$(mktemp)
-  parse_port_mappings "$port_mappings_config" > "$temp_file" 2>&1
+  parse_port_mappings "$port_mappings_config" >"$temp_file" 2>&1
 
   if grep -q "Error:" "$temp_file"; then
     cat "$temp_file" >&2
@@ -854,7 +852,7 @@ handle_config_command() {
 
   case "$action" in
   set)
-    local target="local"  # default target (git-like behavior)
+    local target="local" # default target (git-like behavior)
     local key=""
     local value=""
 
@@ -1480,8 +1478,6 @@ validate_and_prepare_image() {
   fi
 }
 
-
-
 # Function to list all aidra0 containers
 list_containers() {
   echo "aidra0 containers:"
@@ -1582,7 +1578,7 @@ check_command_exists() {
   local tool_name="$2"
   local install_url="$3"
 
-  if ! command -v "$cmd" &> /dev/null; then
+  if ! command -v "$cmd" &>/dev/null; then
     echo "Error: $tool_name CLI '$cmd' command not found."
     echo "Please ensure $tool_name is installed and the '$cmd' command is in your PATH."
     if [ -n "$install_url" ]; then
@@ -1693,30 +1689,30 @@ open_tool_jetbrains() {
   local install_url
 
   case "$tool_name" in
-    webstorm)
-      tool_display_name="WebStorm"
-      tool_command="webstorm"
-      install_url="https://www.jetbrains.com/webstorm/"
-      ;;
-    phpstorm)
-      tool_display_name="PHPStorm"
-      tool_command="phpstorm"
-      install_url="https://www.jetbrains.com/phpstorm/"
-      ;;
-    pycharm)
-      tool_display_name="PyCharm"
-      tool_command="pycharm"
-      install_url="https://www.jetbrains.com/pycharm/"
-      ;;
-    idea)
-      tool_display_name="IntelliJ IDEA"
-      tool_command="idea"
-      install_url="https://www.jetbrains.com/idea/"
-      ;;
-    *)
-      echo "Error: Unknown JetBrains tool '$tool_name'"
-      exit 1
-      ;;
+  webstorm)
+    tool_display_name="WebStorm"
+    tool_command="webstorm"
+    install_url="https://www.jetbrains.com/webstorm/"
+    ;;
+  phpstorm)
+    tool_display_name="PHPStorm"
+    tool_command="phpstorm"
+    install_url="https://www.jetbrains.com/phpstorm/"
+    ;;
+  pycharm)
+    tool_display_name="PyCharm"
+    tool_command="pycharm"
+    install_url="https://www.jetbrains.com/pycharm/"
+    ;;
+  idea)
+    tool_display_name="IntelliJ IDEA"
+    tool_command="idea"
+    install_url="https://www.jetbrains.com/idea/"
+    ;;
+  *)
+    echo "Error: Unknown JetBrains tool '$tool_name'"
+    exit 1
+    ;;
   esac
 
   echo "Opening $tool_display_name for container '$base_name'..."
@@ -1768,29 +1764,29 @@ open_container_with_tool() {
 
   # Call the appropriate tool function
   case "$tool" in
-    vscode)
-      open_tool_vscode "$base_name" "$container_name"
-      ;;
-    cursor)
-      open_tool_cursor "$base_name" "$container_name"
-      ;;
-    webstorm)
-      open_tool_jetbrains "webstorm" "$base_name" "$container_name"
-      ;;
-    phpstorm)
-      open_tool_jetbrains "phpstorm" "$base_name" "$container_name"
-      ;;
-    # Add more JetBrains tools here:
-    # pycharm)
-    #   open_tool_jetbrains "pycharm" "$base_name" "$container_name"
-    #   ;;
-    # idea)
-    #   open_tool_jetbrains "idea" "$base_name" "$container_name"
-    #   ;;
-    *)
-      echo "Error: Unknown tool '$tool'"
-      exit 1
-      ;;
+  vscode)
+    open_tool_vscode "$base_name" "$container_name"
+    ;;
+  cursor)
+    open_tool_cursor "$base_name" "$container_name"
+    ;;
+  webstorm)
+    open_tool_jetbrains "webstorm" "$base_name" "$container_name"
+    ;;
+  phpstorm)
+    open_tool_jetbrains "phpstorm" "$base_name" "$container_name"
+    ;;
+  # Add more JetBrains tools here:
+  # pycharm)
+  #   open_tool_jetbrains "pycharm" "$base_name" "$container_name"
+  #   ;;
+  # idea)
+  #   open_tool_jetbrains "idea" "$base_name" "$container_name"
+  #   ;;
+  *)
+    echo "Error: Unknown tool '$tool'"
+    exit 1
+    ;;
   esac
 }
 
@@ -1952,13 +1948,13 @@ build_mount_args() {
   local custom_mounts=$(get_config_value "custom_mounts" "[]")
   if [[ "$custom_mounts" != "[]" ]]; then
     local temp_file=$(mktemp)
-    parse_custom_mounts "$custom_mounts" > "$temp_file"
+    parse_custom_mounts "$custom_mounts" >"$temp_file"
 
     while IFS=':' read -r host container mode; do
       if [[ -n "$host" && -n "$container" ]]; then
         mount_args+=("-v" "$host:$container:$mode")
       fi
-    done < "$temp_file"
+    done <"$temp_file"
 
     rm "$temp_file"
   fi
@@ -2042,13 +2038,13 @@ build_port_args() {
   local port_mappings=$(get_config_value "port_mappings" "[]")
   if [[ "$port_mappings" != "[]" ]]; then
     local temp_file=$(mktemp)
-    parse_port_mappings "$port_mappings" > "$temp_file"
+    parse_port_mappings "$port_mappings" >"$temp_file"
 
     while IFS=':' read -r host container protocol; do
       if [[ -n "$host" && -n "$container" ]]; then
         port_args+=("-p" "$host:$container/$protocol")
       fi
-    done < "$temp_file"
+    done <"$temp_file"
 
     rm "$temp_file"
   fi
@@ -2326,9 +2322,9 @@ if [[ ${#PORT_ARGS[@]} -gt 0 ]]; then
   i=0
   while [[ $i -lt ${#PORT_ARGS[@]} ]]; do
     if [[ "${PORT_ARGS[$i]}" == "-p" ]]; then
-      echo "  ${PORT_ARGS[$((i+1))]}"
+      echo "  ${PORT_ARGS[$((i + 1))]}"
     fi
-    ((i+=2))
+    ((i += 2))
   done
 fi
 
@@ -2338,11 +2334,11 @@ if [[ ${#RESOURCE_ARGS[@]} -gt 0 ]]; then
   i=0
   while [[ $i -lt ${#RESOURCE_ARGS[@]} ]]; do
     if [[ "${RESOURCE_ARGS[$i]}" == "--cpus" ]]; then
-      echo "  CPU limit: ${RESOURCE_ARGS[$((i+1))]}"
+      echo "  CPU limit: ${RESOURCE_ARGS[$((i + 1))]}"
     elif [[ "${RESOURCE_ARGS[$i]}" == "--memory" ]]; then
-      echo "  Memory limit: ${RESOURCE_ARGS[$((i+1))]}"
+      echo "  Memory limit: ${RESOURCE_ARGS[$((i + 1))]}"
     fi
-    ((i+=2))
+    ((i += 2))
   done
 fi
 
