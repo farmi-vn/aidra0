@@ -398,51 +398,89 @@ list_config_sources() {
 parse_custom_mounts() {
   local mounts_config="$1"
 
-  # Remove brackets and split by comma
-  mounts_config=$(echo "$mounts_config" | sed 's/^\[//; s/\]$//')
-
-  # Parse each mount definition
-  echo "$mounts_config" | grep -o '{[^}]*}' | while read -r mount_def; do
-    # Extract host, container, and mode from JSON-like format
-    local host=$(echo "$mount_def" | sed -n 's/.*"host":"\([^"]*\)".*/\1/p')
-    local container=$(echo "$mount_def" | sed -n 's/.*"container":"\([^"]*\)".*/\1/p')
-    local mode=$(echo "$mount_def" | sed -n 's/.*"mode":"\([^"]*\)".*/\1/p')
-
-    # Default to rw if mode not specified
-    if [[ -z "$mode" ]]; then
-      mode="rw"
-    fi
-
-    # Validate mode
-    if [[ "$mode" != "rw" && "$mode" != "ro" ]]; then
-      echo "Error: Invalid mount mode '$mode'. Must be 'rw' or 'ro'" >&2
-      continue
-    fi
-
-    # Validate paths
-    if [[ -z "$host" || -z "$container" ]]; then
-      echo "Error: Mount definition missing host or container path" >&2
-      continue
-    fi
-
-    # Container path must be absolute
-    if [[ "$container" != /* ]]; then
-      echo "Error: Container path must be absolute: $container" >&2
-      continue
-    fi
-
-    echo "$host:$container:$mode"
+  # Split by comma or newline and process each mount
+  echo "$mounts_config" | tr ',' '\n' | while IFS= read -r mount_spec; do
+    # Skip empty lines
+    [[ -z "${mount_spec// }" ]] && continue
+    
+    # Trim whitespace
+    mount_spec=$(echo "$mount_spec" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    
+    # Parse Docker-like syntax: [volume-name:]container-path[:options]
+    parse_docker_mount_syntax "$mount_spec"
   done
+}
+
+# Function to parse Docker-like mount syntax
+parse_docker_mount_syntax() {
+  local mount_spec="$1"
+  local host=""
+  local container=""
+  local mode="rw"
+
+  # Expand environment variables (e.g., $HOME) safely
+  # Use eval in a clean environment to avoid interference
+  mount_spec=$(bash -c "echo \"$mount_spec\"")
+
+  # Count colons to determine format
+  local colon_count=$(echo "$mount_spec" | tr -cd ':' | wc -c | tr -d ' ')
+
+  case $colon_count in
+    0)
+      # Format: container-path (named volume without explicit name)
+      container="$mount_spec"
+      host="$mount_spec" # Use same name for volume
+      ;;
+    1)
+      # Format: host-or-volume:container-path
+      host=$(echo "$mount_spec" | cut -d':' -f1)
+      container=$(echo "$mount_spec" | cut -d':' -f2)
+      ;;
+    2)
+      # Format: host-or-volume:container-path:options
+      host=$(echo "$mount_spec" | cut -d':' -f1)
+      container=$(echo "$mount_spec" | cut -d':' -f2)
+      mode=$(echo "$mount_spec" | cut -d':' -f3)
+      ;;
+    *)
+      echo "Error: Invalid mount syntax '$mount_spec'. Use [volume:]path[:opts]" >&2
+      return 1
+      ;;
+  esac
+
+  # Validate mode
+  if [[ "$mode" != "rw" && "$mode" != "ro" ]]; then
+    echo "Error: Invalid mount mode '$mode'. Must be 'rw' or 'ro'" >&2
+    return 1
+  fi
+
+  # Validate paths
+  if [[ -z "$container" ]]; then
+    echo "Error: Container path cannot be empty" >&2
+    return 1
+  fi
+
+  # Container path must be absolute
+  if [[ "$container" != /* ]]; then
+    echo "Error: Container path must be absolute: $container" >&2
+    return 1
+  fi
+
+  # If host path is empty, use container path as volume name
+  if [[ -z "$host" ]]; then
+    host="$container"
+  fi
+
+  echo "$host:$container:$mode"
 }
 
 # Function to validate custom mount configuration
 validate_custom_mounts() {
   local mounts_config="$1"
 
-  # Check JSON-like format
-  if [[ ! "$mounts_config" =~ ^\[.*\]$ ]]; then
-    echo "Error: custom_mounts must be in format: [{\"host\":\"/path\",\"container\":\"/path\",\"mode\":\"rw\"}]"
-    return 1
+  # Skip validation if empty
+  if [[ -z "$mounts_config" || "$mounts_config" == "[]" ]]; then
+    return 0
   fi
 
   # Parse and validate each mount
@@ -455,15 +493,143 @@ validate_custom_mounts() {
     return 1
   fi
 
-  # Check if any host paths don't exist
+  # Check if any host paths don't exist (skip volume names)
   while IFS=':' read -r host container mode; do
-    if [[ -n "$host" && ! -e "$host" ]]; then
+    if [[ -n "$host" && "$host" == /* && ! -e "$host" ]]; then
       echo "Warning: Host path does not exist: $host" >&2
     fi
   done <"$temp_file"
 
   rm "$temp_file"
   return 0
+}
+
+# Function to add a mount to custom_mounts configuration
+add_mount_config() {
+  local mount_spec="$1"
+  local target="${2:-local}"
+  
+  # Validate the mount syntax
+  local temp_file=$(mktemp)
+  if ! parse_docker_mount_syntax "$mount_spec" >"$temp_file" 2>&1; then
+    cat "$temp_file" >&2
+    rm "$temp_file"
+    return 1
+  fi
+  rm "$temp_file"
+  
+  # Get current mounts
+  local current_mounts=$(get_config_value "custom_mounts" "")
+  
+  # Add new mount
+  if [[ -z "$current_mounts" ]]; then
+    set_config_value "custom_mounts" "$mount_spec" "$target"
+  else
+    set_config_value "custom_mounts" "$current_mounts,$mount_spec" "$target"
+  fi
+  
+  echo "Added mount: $mount_spec"
+}
+
+# Function to remove a mount from custom_mounts configuration
+remove_mount_config() {
+  local container_path="$1"
+  local target="${2:-local}"
+  
+  # Get current mounts
+  local current_mounts=$(get_config_value "custom_mounts" "")
+  
+  if [[ -z "$current_mounts" ]]; then
+    echo "No mounts configured"
+    return 1
+  fi
+  
+  # Parse current mounts and filter out the one to remove
+  local temp_file=$(mktemp)
+  local new_mounts=""
+  local found=false
+  
+  parse_custom_mounts "$current_mounts" > "$temp_file"
+  
+  while IFS=':' read -r host container mode; do
+    if [[ "$container" != "$container_path" ]]; then
+      if [[ -z "$new_mounts" ]]; then
+        new_mounts="$host:$container:$mode"
+      else
+        new_mounts="$new_mounts,$host:$container:$mode"
+      fi
+    else
+      found=true
+    fi
+  done < "$temp_file"
+  
+  rm "$temp_file"
+  
+  if [[ "$found" == "false" ]]; then
+    echo "Mount with container path '$container_path' not found"
+    return 1
+  fi
+  
+  # Update configuration
+  set_config_value "custom_mounts" "$new_mounts" "$target"
+  echo "Removed mount: $container_path"
+}
+
+# Function to list current mount configuration
+list_mount_config() {
+  local target="${1:-local}"
+  
+  echo "Custom mounts configuration:"
+  echo ""
+  
+  # Get mounts from different sources
+  local env_mounts=""
+  local local_mounts=""
+  local global_mounts=""
+  
+  # Check environment variable
+  env_mounts=$(get_env_config_value "custom_mounts")
+  if [[ -n "$env_mounts" ]]; then
+    echo "Environment variable (AIDRA0_CUSTOM_MOUNTS):"
+    parse_custom_mounts "$env_mounts" | while IFS=':' read -r host container mode; do
+      echo "  $host → $container ($mode)"
+    done
+    echo ""
+  fi
+  
+  # Check local config
+  local local_config_file=$(find_local_config)
+  if [[ -n "$local_config_file" ]]; then
+    local_mounts=$(get_config_value_from_file "$local_config_file" "custom_mounts")
+    if [[ -n "$local_mounts" ]]; then
+      echo "Local config ($local_config_file):"
+      parse_custom_mounts "$local_mounts" | while IFS=':' read -r host container mode; do
+        echo "  $host → $container ($mode)"
+      done
+      echo ""
+    fi
+  fi
+  
+  # Check global config
+  global_mounts=$(get_config_value_from_file "$CONFIG_FILE" "custom_mounts")
+  if [[ -n "$global_mounts" ]]; then
+    echo "Global config ($CONFIG_FILE):"
+    parse_custom_mounts "$global_mounts" | while IFS=':' read -r host container mode; do
+      echo "  $host → $container ($mode)"
+    done
+    echo ""
+  fi
+  
+  # Show effective configuration
+  local effective_mounts=$(get_config_value "custom_mounts" "")
+  if [[ -n "$effective_mounts" ]]; then
+    echo "Effective configuration (used when running containers):"
+    parse_custom_mounts "$effective_mounts" | while IFS=':' read -r host container mode; do
+      echo "  $host → $container ($mode)"
+    done
+  else
+    echo "No custom mounts configured"
+  fi
 }
 
 # Function to validate CPU limit value
@@ -669,13 +835,13 @@ list_config() {
   local custom_mounts=$(get_config_value "custom_mounts" "")
   local custom_mounts_source=$(get_config_source "custom_mounts")
 
-  if [[ -n "$custom_mounts" && "$custom_mounts" != "[]" ]]; then
+  if [[ -n "$custom_mounts" ]]; then
     echo "  custom_mounts:  [$custom_mounts_source]"
     parse_custom_mounts "$custom_mounts" | while IFS=':' read -r host container mode; do
       echo "    $host -> $container ($mode)"
     done
   else
-    echo "  custom_mounts=[]  [$custom_mounts_source]"
+    echo "  custom_mounts=(none)  [$custom_mounts_source]"
   fi
 
   echo ""
@@ -732,7 +898,8 @@ show_usage() {
   echo ""
   echo "Options:"
   echo "  --image IMAGE     Docker image to use (default: from config or alpine)"
-  echo "  --mount PATH      Mount host path to container: /host/path:/container/path[:mode]"
+  echo "  --mount SPEC      Mount using Docker-like syntax: [volume:]path[:opts]"
+  echo "                    Examples: myvolume:/data:ro, /host/path:/container/path, \$HOME/scripts:/scripts"
   echo "                    Mode can be 'rw' (read-write) or 'ro' (read-only). Default: rw"
   echo "                    Can be used multiple times for multiple mounts"
   echo "  --mount-ro PATH   Mount host path as read-only: /host/path:/container/path"
@@ -766,6 +933,8 @@ show_usage() {
   echo "  $script_name my-app                   # Use 'my-app' as name with default image"
   echo "  $script_name --image ubuntu my-app    # Use ubuntu image with 'my-app' as name"
   echo "  $script_name --mount /data:/app/data my-app   # Mount /data to /app/data (read-write)"
+  echo "  $script_name --mount myvolume:/data:ro my-app     # Mount named volume 'myvolume' to /data (read-only)"
+  echo "  $script_name --mount \$HOME/scripts:/scripts my-app # Mount home scripts directory"
   echo "  $script_name --mount-ro /config:/app/config my-app # Mount /config to /app/config (read-only)"
   echo "  $script_name --mount /data:/data:ro --mount /logs:/logs:rw my-app # Multiple mounts"
   echo "  $script_name --network my-network my-app     # Connect to Docker network"
@@ -802,10 +971,16 @@ show_config_help() {
   echo "  $script_name --config which <key>                     Show which config source provides a value"
   echo "  $script_name --config sources                         List all config sources in precedence order"
   echo ""
+  echo "Mount Management Commands:"
+  echo "  $script_name --config add-mount [--global] <mount>    Add a mount to configuration"
+  echo "  $script_name --config remove-mount [--global] <path>  Remove a mount by container path"
+  echo "  $script_name --config list-mounts                     List all configured mounts"
+  echo ""
   echo "Configuration keys:"
   echo "  default_image              Default Docker image to use (default: alpine)"
-  echo "  custom_mounts              Custom mount definitions in JSON format"
-  echo "                            Format: [{\"host\":\"/path\",\"container\":\"/path\",\"mode\":\"rw|ro\"}]"
+  echo "  custom_mounts              Custom mount definitions in Docker-like format"
+  echo "                            Format: [volume:]path[:opts] (comma-separated)"
+  echo "                            Examples: 'myvolume:/data:ro,/host:/app,\$HOME/scripts:/scripts'"
   echo "  port_mappings              Port mapping definitions (simple or JSON format)"
   echo "                            Simple: '8080:80 9090:90:udp'"
   echo "                            JSON: '[{\"host\":\"8080\",\"container\":\"80\",\"protocol\":\"tcp\"}]'"
@@ -834,7 +1009,12 @@ show_config_help() {
   echo "  AIDRA0_DEFAULT_IMAGE=python:3.11 $script_name"
   echo "  "
   echo "  # Set custom mounts in local config (default)"
-  echo "  $script_name --config set custom_mounts '[{\"host\":\"/data\",\"container\":\"/app/data\",\"mode\":\"rw\"}]'"
+  echo "  $script_name --config set custom_mounts 'myvolume:/data:ro,/host/data:/app/data'"
+  echo "  "
+  echo "  # Add individual mounts"
+  echo "  $script_name --config add-mount 'myvolume:/data:ro'"
+  echo "  $script_name --config add-mount '/host/scripts:/scripts'"
+  echo "  $script_name --config add-mount '\$HOME/workspace:/workspace'"
   echo "  "
   echo "  # Set port mappings in local config (simple format)"
   echo "  $script_name --config set port_mappings '8080:80 9090:90:udp'"
@@ -891,7 +1071,7 @@ handle_config_command() {
     custom_mounts)
       if [[ $# -ne 2 ]]; then
         echo "Error: custom_mounts requires exactly one value"
-        echo "Usage: --config set custom_mounts '[{\"host\":\"/path\",\"container\":\"/path\",\"mode\":\"rw\"}]'"
+        echo "Usage: --config set custom_mounts 'myvolume:/data:ro,/host:/app'"
         exit 1
       fi
       local value="$2"
@@ -1021,7 +1201,7 @@ handle_config_command() {
         echo "Usage: --config get custom_mounts"
         exit 1
       fi
-      value=$(get_config_value "$key" "[]")
+      value=$(get_config_value "$key" "")
       echo "$value"
       ;;
 
@@ -1086,12 +1266,56 @@ handle_config_command() {
       ;;
     esac
     ;;
+  add-mount)
+    local target="local"
+    
+    # Check for --global flag
+    if [[ "$1" == "--global" ]]; then
+      target="global"
+      shift
+    fi
+    
+    if [[ $# -lt 1 ]]; then
+      echo "Error: add-mount requires a mount specification"
+      echo "Usage: --config add-mount [--global] <mount-spec>"
+      echo "Examples:"
+      echo "  --config add-mount myvolume:/data"
+      echo "  --config add-mount /host/path:/container/path:ro"
+      echo "  --config add-mount \$HOME/scripts:/scripts"
+      exit 1
+    fi
+    
+    local mount_spec="$1"
+    add_mount_config "$mount_spec" "$target"
+    ;;
+  remove-mount)
+    local target="local"
+    
+    # Check for --global flag
+    if [[ "$1" == "--global" ]]; then
+      target="global"
+      shift
+    fi
+    
+    if [[ $# -lt 1 ]]; then
+      echo "Error: remove-mount requires a container path"
+      echo "Usage: --config remove-mount [--global] <container-path>"
+      echo "Example: --config remove-mount /app/data"
+      exit 1
+    fi
+    
+    local container_path="$1"
+    remove_mount_config "$container_path" "$target"
+    ;;
+  list-mounts)
+    list_mount_config
+    ;;
   sources)
     list_config_sources
     ;;
   *)
     echo "Error: Unknown config action '$action'"
-    echo "Available actions: set, get, list, which, sources"
+    echo "Available actions: set, get, list, which, sources, add-mount, remove-mount, list-mounts"
     show_config_help
     exit 1
     ;;
@@ -1168,7 +1392,8 @@ parse_arguments() {
     --mount)
       if [[ $# -eq 1 ]]; then
         echo "Error: --mount requires a value"
-        echo "Usage: --mount /host/path:/container/path[:mode]"
+        echo "Usage: --mount [volume:]path[:opts]"
+        echo "Examples: --mount myvolume:/data:ro, --mount /host:/app, --mount \$HOME/scripts:/scripts"
         exit 1
       fi
       CLI_CUSTOM_MOUNTS+=("$2")
@@ -1882,45 +2107,20 @@ remove_container() {
   fi
 }
 
-# Function to validate mount format
+# Function to validate mount format using Docker syntax
 validate_mount_format() {
   local mount_spec="$1"
 
-  # Check if format is host:container[:mode]
-  if [[ ! "$mount_spec" =~ ^[^:]+:[^:]+(:.*)?$ ]]; then
-    echo "Error: Invalid mount format '$mount_spec'. Expected format: /host/path:/container/path[:mode]"
+  # Use the same Docker syntax parser for validation
+  local temp_file=$(mktemp)
+  if parse_docker_mount_syntax "$mount_spec" >"$temp_file" 2>&1; then
+    rm "$temp_file"
+    return 0
+  else
+    cat "$temp_file" >&2
+    rm "$temp_file"
     return 1
   fi
-
-  # Parse components
-  local host_path=$(echo "$mount_spec" | cut -d':' -f1)
-  local container_path=$(echo "$mount_spec" | cut -d':' -f2)
-  local mode=$(echo "$mount_spec" | cut -d':' -f3)
-
-  # Default mode if not specified
-  if [[ -z "$mode" ]]; then
-    mode="rw"
-  fi
-
-  # Validate mode
-  if [[ "$mode" != "rw" && "$mode" != "ro" ]]; then
-    echo "Error: Invalid mount mode '$mode'. Must be 'rw' or 'ro'"
-    return 1
-  fi
-
-  # Validate host path exists
-  if [[ ! -e "$host_path" ]]; then
-    echo "Error: Host path does not exist: $host_path"
-    return 1
-  fi
-
-  # Validate container path is absolute
-  if [[ "$container_path" != /* ]]; then
-    echo "Error: Container path must be absolute: $container_path"
-    return 1
-  fi
-
-  return 0
 }
 
 # Function to validate network exists
@@ -1945,8 +2145,8 @@ build_mount_args() {
   mount_args+=("-v" "aidra0-user-scripts:/user-scripts")
 
   # Add custom mounts from config
-  local custom_mounts=$(get_config_value "custom_mounts" "[]")
-  if [[ "$custom_mounts" != "[]" ]]; then
+  local custom_mounts=$(get_config_value "custom_mounts" "")
+  if [[ -n "$custom_mounts" ]]; then
     local temp_file=$(mktemp)
     parse_custom_mounts "$custom_mounts" >"$temp_file"
 
@@ -1963,15 +2163,13 @@ build_mount_args() {
   if [[ ${#CLI_CUSTOM_MOUNTS[@]} -gt 0 ]]; then
     for mount_spec in "${CLI_CUSTOM_MOUNTS[@]}"; do
       if validate_mount_format "$mount_spec"; then
-        # Parse mount spec
-        local host_path=$(echo "$mount_spec" | cut -d':' -f1)
-        local container_path=$(echo "$mount_spec" | cut -d':' -f2)
-        local mode=$(echo "$mount_spec" | cut -d':' -f3)
-
-        # Default mode if not specified
-        if [[ -z "$mode" ]]; then
-          mode="rw"
-        fi
+        # Parse mount spec using Docker syntax parser
+        local temp_file=$(mktemp)
+        parse_docker_mount_syntax "$mount_spec" > "$temp_file"
+        
+        local host_path container_path mode
+        IFS=':' read -r host_path container_path mode < "$temp_file"
+        rm "$temp_file"
 
         mount_args+=("-v" "$host_path:$container_path:$mode")
       else
@@ -2298,12 +2496,14 @@ fi
 if [[ ${#CLI_CUSTOM_MOUNTS[@]} -gt 0 ]]; then
   echo "Custom mounts from CLI:"
   for mount_spec in "${CLI_CUSTOM_MOUNTS[@]}"; do
-    host_path=$(echo "$mount_spec" | cut -d':' -f1)
-    container_path=$(echo "$mount_spec" | cut -d':' -f2)
-    mode=$(echo "$mount_spec" | cut -d':' -f3)
-    if [[ -z "$mode" ]]; then
-      mode="rw"
-    fi
+    # Parse using Docker syntax parser
+    local temp_file=$(mktemp)
+    parse_docker_mount_syntax "$mount_spec" > "$temp_file"
+    
+    local host_path container_path mode
+    IFS=':' read -r host_path container_path mode < "$temp_file"
+    rm "$temp_file"
+    
     echo "  $host_path -> $container_path ($mode)"
   done
 fi

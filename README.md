@@ -131,7 +131,8 @@ Arguments:
 
 Options:
   --image IMAGE     Docker image to use (default: from config or alpine)
-  --mount PATH      Mount host path to container: /host/path:/container/path[:mode]
+  --mount SPEC      Mount using Docker-like syntax: [volume:]path[:opts]
+                    Examples: myvolume:/data:ro, /host/path:/container/path, $HOME/scripts:/scripts
                     Mode can be 'rw' (read-write) or 'ro' (read-only). Default: rw
                     Can be used multiple times for multiple mounts
   --mount-ro PATH   Mount host path as read-only: /host/path:/container/path
@@ -195,11 +196,17 @@ aidra0 --image python:3.11-slim data-analysis
 # Mount additional directories for data access
 aidra0 --mount /home/user/data:/app/data my-app
 
+# Mount named volume as read-only
+aidra0 --mount myvolume:/data:ro my-app
+
+# Mount with environment variable expansion
+aidra0 --mount $HOME/scripts:/scripts my-app
+
 # Mount configuration files as read-only
 aidra0 --mount-ro /etc/myconfig:/app/config my-app
 
-# Multiple custom mounts with different permissions
-aidra0 --mount /home/user/data:/app/data:rw --mount-ro /home/user/config:/app/config my-app
+# Multiple custom mounts with different permissions and syntax
+aidra0 --mount /home/user/data:/app/data:rw --mount myvolume:/shared:ro --mount $HOME/scripts:/scripts my-app
 
 # Connect container to Docker network
 aidra0 --network my-network my-app
@@ -337,9 +344,11 @@ Example for adding IntelliJ IDEA:
 ### Main Options
 
 - `--image IMAGE`: Specify Docker image to use (default: from config or `alpine`)
-- `--mount PATH`: Mount host path to container with format `/host/path:/container/path[:mode]`
+- `--mount SPEC`: Mount using Docker-like syntax with format `[volume:]path[:opts]`
+  - Examples: `myvolume:/data:ro`, `/host/path:/container/path`, `$HOME/scripts:/scripts`
   - Mode can be `rw` (read-write) or `ro` (read-only)
   - Default mode is `rw` if not specified
+  - Supports environment variable expansion (e.g., `$HOME`)
   - Can be used multiple times for multiple mounts
 - `--mount-ro PATH`: Mount host path as read-only with format `/host/path:/container/path`
   - Shorthand for `--mount /host/path:/container/path:ro`
@@ -476,8 +485,9 @@ Commands:
 
 Configuration keys:
   default_image              Default Docker image to use (default: alpine)
-  custom_mounts              Custom mount definitions in JSON format
-                            Format: [{"host":"/path","container":"/path","mode":"rw|ro"}]
+  custom_mounts              Custom mount definitions in Docker-like format
+                            Format: [volume:]path[:opts] (comma-separated)
+                            Examples: 'myvolume:/data:ro,/host:/app,$HOME/scripts:/scripts'
   port_mappings              Port mapping definitions (simple or JSON format)
                             Simple: '8080:80 9090:90:udp'
                             JSON: '[{"host":"8080","container":"80","protocol":"tcp"}]'
@@ -542,7 +552,7 @@ Create a `.aidra0.conf` file in your project root for project-specific settings:
 ```bash
 # .aidra0.conf
 default_image=node:18-alpine
-custom_mounts=[{"host":"./src","container":"/app/src","mode":"rw"},{"host":"./config","container":"/app/config","mode":"ro"}]
+custom_mounts=./src:/app/src:rw,./config:/app/config:ro
 ```
 
 This file can be committed to version control, allowing team members to share the same container configuration.
@@ -550,7 +560,7 @@ This file can be committed to version control, allowing team members to share th
 ### Available Configuration Keys
 
 - `default_image`: Default Docker image to use (default: `alpine`)
-- `custom_mounts`: Custom mount definitions in JSON format for persistent mount configurations
+- `custom_mounts`: Custom mount definitions in Docker-like format for persistent mount configurations
 - `port_mappings`: Port mapping definitions in simple or JSON format for persistent port configurations
 - `cpu_limit`: Default CPU limit for containers (e.g., `1`, `1.5`, `2.0`)
 - `memory_limit`: Default memory limit for containers (e.g., `512m`, `1g`, `2G`)
@@ -575,7 +585,7 @@ The configuration file uses a simple `key=value` format:
 
 ```
 default_image=ubuntu:22.04
-custom_mounts=[{"host":"/home/user/data","container":"/app/data","mode":"rw"},{"host":"/etc/configs","container":"/app/config","mode":"ro"}]
+custom_mounts=/home/user/data:/app/data:rw,/etc/configs:/app/config:ro
 ```
 
 ### Configuration Workflow Examples
@@ -585,12 +595,12 @@ custom_mounts=[{"host":"/home/user/data","container":"/app/data","mode":"rw"},{"
 ```bash
 # 1. Set global/user-wide defaults
 aidra0 --config set --global default_image ubuntu:22.04
-aidra0 --config set --global custom_mounts '[{"host":"/home/user/data","container":"/data","mode":"rw"}]'
+aidra0 --config set --global custom_mounts '/home/user/data:/data:rw'
 
 # 2. Set project-specific overrides (default behavior)
 cd /path/to/nodejs-project
 aidra0 --config set default_image node:18-alpine
-aidra0 --config set custom_mounts '[{"host":"./src","container":"/app/src","mode":"rw"}]'
+aidra0 --config set custom_mounts './src:/app/src:rw'
 
 # 3. Check which configuration is active
 aidra0 --config which default_image
@@ -613,7 +623,7 @@ aidra0 --config sources
 ```bash
 # Project lead sets up local config
 echo 'default_image=node:18-alpine' > .aidra0.conf
-echo 'custom_mounts=[{"host":"./src","container":"/app/src","mode":"rw"}]' >> .aidra0.conf
+echo 'custom_mounts=./src:/app/src:rw' >> .aidra0.conf
 
 # Commit to version control
 git add .aidra0.conf
@@ -899,14 +909,39 @@ aidra0 --mount /data:/app/data:rw --mount-ro /configs:/app/config my-app
 
 ```bash
 # Set persistent custom mounts
-aidra0 --config set custom_mounts '[
-  {"host":"/home/user/projects","container":"/workspace","mode":"rw"},
-  {"host":"/etc/ssl/certs","container":"/app/certs","mode":"ro"}
-]'
+aidra0 --config set custom_mounts '/home/user/projects:/workspace:rw,/etc/ssl/certs:/app/certs:ro'
 
 # All future containers will use these mounts automatically
 aidra0 my-project
 ```
+
+#### Mount Management Commands
+
+Container Here provides commands to manage mounts without having to manually edit the configuration:
+
+```bash
+# Add individual mounts
+aidra0 --config add-mount 'myvolume:/data:ro'
+aidra0 --config add-mount '/host/scripts:/scripts'
+aidra0 --config add-mount '$HOME/workspace:/workspace'
+
+# Add to global configuration
+aidra0 --config add-mount --global '/shared/data:/data:ro'
+
+# Remove mounts by container path
+aidra0 --config remove-mount '/data'
+aidra0 --config remove-mount --global '/data'
+
+# List all configured mounts
+aidra0 --config list-mounts
+```
+
+**Mount Syntax Examples:**
+- `myvolume:/data` - Mount named volume 'myvolume' to '/data' (read-write)
+- `myvolume:/data:ro` - Mount named volume 'myvolume' to '/data' (read-only)
+- `/host/path:/container/path` - Mount host directory to container (read-write)
+- `/host/path:/container/path:ro` - Mount host directory to container (read-only)
+- `$HOME/scripts:/scripts` - Mount with environment variable expansion
 
 #### Mount Validation
 
@@ -995,10 +1030,7 @@ aidra0 --port 3001:3000 --port 8081:80 frontend-alt
 aidra0 --config set default_image python:3.11-slim
 
 # Set up persistent mounts for data and notebooks
-aidra0 --config set custom_mounts '[
-  {"host":"/home/user/datasets","container":"/data","mode":"ro"},
-  {"host":"/home/user/notebooks","container":"/notebooks","mode":"rw"}
-]'
+aidra0 --config set custom_mounts '/home/user/datasets:/data:ro,/home/user/notebooks:/notebooks:rw'
 
 # Create containers for different analyses
 aidra0 data-analysis      # Uses python:3.11-slim with data mounts
@@ -1152,12 +1184,7 @@ aidra0 \
 
 ```bash
 # Set up a development environment with persistent mounts
-aidra0 --config set custom_mounts '[
-  {"host":"/home/user/projects","container":"/workspace","mode":"rw"},
-  {"host":"/home/user/.gitconfig","container":"/root/.gitconfig","mode":"ro"},
-  {"host":"/home/user/.ssh","container":"/root/.ssh","mode":"ro"},
-  {"host":"/home/user/bin","container":"/usr/local/bin","mode":"ro"}
-]'
+aidra0 --config set custom_mounts '/home/user/projects:/workspace:rw,/home/user/.gitconfig:/root/.gitconfig:ro,/home/user/.ssh:/root/.ssh:ro,/home/user/bin:/usr/local/bin:ro'
 
 # Now all containers automatically get these mounts
 aidra0 my-project      # Automatically includes all configured mounts
